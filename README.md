@@ -25,11 +25,9 @@ sudo apt install ffmpeg python3 python3-pip python3-venv git
 ### Cloner le repo
 
 ```bash
-git clone https://github.com/lantiumBot/Unit3Dup-G3MINI /opt/unit3dup
-cd /opt/unit3dup
+git clone https://github.com/lantiumBot/Unit3Dup-G3MINI ~/unit3dup
+cd ~/unit3dup
 ```
-
-> Le chemin `/opt/unit3dup` est utilisé dans les exemples ci-dessous. Si tu clones ailleurs, adapte-le partout (notamment dans le wrapper).
 
 ### Créer un environnement virtuel et installer
 
@@ -43,33 +41,28 @@ L'option `-e` (editable) permet de recevoir les mises à jour du fork simplement
 
 ### Vérifier l'installation
 
-Avant de configurer quoi que ce soit, vérifie que le tool est bien accessible :
-
 ```bash
 unit3dup --help
 ```
 
-Si la commande n'est pas trouvée, c'est que le venv n'est pas activé (`source venv/bin/activate`) ou que le wrapper n'est pas en place (voir ci-dessous).
+Si la commande n'est pas trouvée, active d'abord le venv manuellement :
+
+```bash
+source .venv/bin/activate
+unit3dup --help
+```
 
 ---
 
 ### Wrapper (optionnel mais recommandé)
 
-Le wrapper permet d'utiliser `unit3dup` depuis n'importe où **sans activer le venv manuellement** à chaque fois.
+Le wrapper permet d'utiliser `unit3dup` depuis n'importe où **sans activer le venv manuellement** à chaque fois. Il détecte automatiquement son emplacement — peu importe où tu as cloné le repo.
 
-Ouvre le fichier `unit3dup-wrapper.sh` et vérifie que le chemin vers le repo est correct :
-
-```bash
-nano /opt/unit3dup/unit3dup-wrapper.sh
-```
-
-Cherche la ligne qui définit le chemin du projet et assure-toi qu'elle correspond à l'endroit où tu as cloné le repo (par défaut `/opt/unit3dup`).
-
-Ensuite, rends-le exécutable et crée le symlink :
+Rends-le exécutable et crée le symlink :
 
 ```bash
-chmod +x /opt/unit3dup/unit3dup-wrapper.sh
-sudo ln -s /opt/unit3dup/unit3dup-wrapper.sh /usr/local/bin/unit3dup
+chmod +x ~/unit3dup/unit3dup-wrapper.sh
+sudo ln -s ~/unit3dup/unit3dup-wrapper.sh /usr/local/bin/unit3dup
 ```
 
 Vérifie que ça fonctionne :
@@ -105,11 +98,9 @@ Les champs essentiels à renseigner :
 | `Gemini_APIKEY` | Clé API (profil G3MINI) | ✅ |
 | `Gemini_PID` | Ton passkey | ✅ |
 | `TMDB_APIKEY` | Clé gratuite sur [themoviedb.org](https://www.themoviedb.org/settings/api) | ✅ |
-| `WATCHER_PATH` | Chemin vers ton dossier de watch | ✅ |
-| `WATCHER_DESTINATION_PATH` | Chemin de destination des fichiers `.torrent` | ✅ |
-| `IMGBB_KEY` | Clé gratuite sur [imgbb.com](https://imgbb.com) pour les screenshots | ⬜ optionnel |
-
-> **Note :** `IMGBB_KEY` est optionnel. Si absent, les screenshots ne seront pas uploadés mais le reste fonctionnera normalement.
+| `WATCHER_PATH` | Chemin vers ton dossier de watch (la où sont les releases à upload) | ✅ |
+| `WATCHER_DESTINATION_PATH` | Chemin de destination des releases après l'upload | ✅ |
+| `IMGBB_KEY` | Clé gratuite sur [imgbb.com](https://imgbb.com) pour les screenshots | ✅ |
 
 > **Permissions :** Assure-toi que l'utilisateur qui lance unit3dup a bien les droits en lecture sur `WATCHER_PATH` et en écriture sur `WATCHER_DESTINATION_PATH`. Si ces dossiers sont sur un montage NFS ou un partage réseau, vérifie aussi que le montage est actif avant de lancer le watcher.
 
@@ -145,7 +136,7 @@ unit3dup -scan /chemin/vers/dossier
 ## Mise à jour
 
 ```bash
-cd /opt/unit3dup
+cd ~/unit3dup
 git pull
 ```
 
