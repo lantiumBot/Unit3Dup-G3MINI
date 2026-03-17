@@ -22,6 +22,8 @@ Ce fork ajoute la normalisation automatique des noms de release selon les conven
 sudo apt install ffmpeg python3 python3-pip python3-venv git
 ```
 
+Il vous faut la version 3.13.5 de Python3
+
 ### Cloner le repo
 
 ```bash
