@@ -1,0 +1,17 @@
+services:
+  unit3dup:
+    build:
+      context: .
+    container_name: unit3dup
+    restart: unless-stopped
+    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: "${TZ:-Europe/Paris}"
+      UNIT3DUP_CONFIG_ROOT: /config
+      HOME: /tmp/unit3dup
+    volumes:
+      - ./docker-data/config:/config
+      - ./docker-data/watch:/watch
+      - ./docker-data/done:/done
+      - ./docker-data/media:/data
+    command: ["-watcher"]

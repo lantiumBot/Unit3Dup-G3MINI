@@ -154,3 +154,103 @@ pip install -e .
 ## Projet original
 
 Ce fork est basé sur [Unit3Dup](https://github.com/31December99/Unit3Dup) — licence MIT.
+
+---
+
+## Docker / NAS
+
+Une stack Docker prête à l'emploi est disponible à la racine du dépôt avec :
+
+- `Dockerfile`
+- `docker-compose.yml`
+- `.dockerignore`
+
+Le conteneur utilise ce fork localement et stocke sa configuration dans `/config` via la variable d'environnement `UNIT3DUP_CONFIG_ROOT`.
+
+### Volumes par défaut
+
+Le `docker-compose.yml` monte ces dossiers :
+
+- `./docker-data/config` → `/config`
+- `./docker-data/watch` → `/watch`
+- `./docker-data/done` → `/done`
+- `./docker-data/media` → `/data`
+
+Sur un NAS, remplace de préférence ces chemins par tes partages absolus, par exemple :
+
+```yaml
+volumes:
+  - /volume1/docker/unit3dup/config:/config
+  - /volume1/torrents/watch:/watch
+  - /volume1/torrents/done:/done
+  - /volume1/media:/data
+```
+
+### 1. Construire l'image
+
+```bash
+docker compose build
+```
+
+### 2. Générer la configuration initiale
+
+Lance une première fois l'outil pour créer `/config/Unit3Dbot.json` :
+
+```bash
+docker compose run --rm unit3dup --help
+```
+
+### 3. Éditer la configuration
+
+Modifie ensuite `Unit3Dbot.json` dans ton dossier `config` et adapte au minimum :
+
+```json
+"WATCHER_PATH": "/watch",
+"WATCHER_DESTINATION_PATH": "/done"
+```
+
+Renseigne aussi :
+
+- `Gemini_URL`
+- `Gemini_APIKEY`
+- `Gemini_PID`
+- `TMDB_APIKEY`
+- `IMGBB_KEY`
+
+Si tu utilises un client torrent externe sur le NAS, pense également à corriger :
+
+- `QBIT_HOST` / `QBIT_PORT`
+- ou `TRASM_HOST` / `TRASM_PORT`
+- ou `RTORR_HOST` / `RTORR_PORT`
+
+### 4. Lancer le watcher
+
+```bash
+docker compose up -d
+```
+
+Le service démarre avec la commande `-watcher`.
+
+### 5. Lancer un upload manuel
+
+Pour envoyer un fichier déjà présent dans le volume `/data` :
+
+```bash
+docker compose run --rm unit3dup -u /data/mon_fichier.mkv
+```
+
+Pour scanner un dossier :
+
+```bash
+docker compose run --rm unit3dup -scan /data/mon_dossier
+```
+
+### Permissions NAS
+
+Le compose utilise :
+
+```yaml
+user: "${PUID:-1000}:${PGID:-1000}"
+```
+
+Adapte `PUID` et `PGID` à l'utilisateur de ton NAS si besoin pour éviter les problèmes d'accès sur les partages.
