@@ -231,6 +231,22 @@ docker compose up -d
 
 Le service démarre avec la commande `-watcher`.
 
+> **Note importante :**
+> Le mode `-watcher` utilisé par le compose par défaut suppose qu'un client torrent configuré soit accessible si `-noseed` n'est pas utilisé.
+> Si `qBittorrent`, `Transmission` ou `rTorrent` n'est pas encore joignable depuis le conteneur, le service peut redémarrer en boucle au lancement.
+>
+> Pour un premier test Docker sans client torrent, tu peux par exemple lancer :
+>
+> ```bash
+> docker compose run --rm unit3dup -scan /watch -noseed -noup
+> ```
+>
+> Ou modifier temporairement la commande du service en :
+>
+> ```yaml
+> command: ["-watcher", "-noseed"]
+> ```
+
 ### 5. Lancer un upload manuel
 
 Pour envoyer un fichier déjà présent dans le volume `/data` :
