@@ -7,10 +7,9 @@ import bencode2
 import requests
 from abc import ABC, abstractmethod
 
-import qbittorrent
+import qbittorrentapi
 import transmission_rpc
 from rtorrent_rpc import RTorrent
-from qbittorrent import Client as QBClient
 
 from unit3dup.pvtTorrent import Mytorrent
 from unit3dup import config_settings
@@ -19,40 +18,14 @@ from unit3dup.media import Media
 from view import custom_console
 
 
-class MyQbittorrent(QBClient):
-    """
-    Extends qbittorrent import (python-qbittorrent)
-    """
-
-    def add_tags(self, infohash_list: list[str]):
-        return self._post(
-            "torrents/addTags",
-            data={
-                "hashes": infohash_list[0],
-                "tags": config_settings.torrent_client_config.TAG,
-            },
-        )
-
-    def remove_tags(self, infohash_list: list[str]):
-        return self._post(
-            "torrents/removeTags",
-            data={
-                "hashes": infohash_list[0],
-                "tags": config_settings.torrent_client_config.TAG,
-            },
-        )
-
-    # Force savepath properly via qBittorrent WebAPI (torrents/add)
-    def add_torrent_file(self, file_buffer, savepath: str, tags: str | None = None):
-        data = {
-            "savepath": savepath,
-            "autoTMM": "false",  # prevents categories/templates from overriding savepath (as much as possible)
-        }
-        if tags:
-            data["tags"] = tags
-
-        files = {"torrents": file_buffer}
-        return self._post("torrents/add", data=data, files=files)
+def _qbittorrent_api_client() -> qbittorrentapi.Client:
+    return qbittorrentapi.Client(
+        host=config_settings.torrent_client_config.QBIT_HOST,
+        port=int(config_settings.torrent_client_config.QBIT_PORT),
+        username=config_settings.torrent_client_config.QBIT_USER,
+        password=config_settings.torrent_client_config.QBIT_PASS,
+        REQUESTS_ARGS={"timeout": 10},
+    )
 
 
 class TorrClient(ABC):
@@ -124,102 +97,86 @@ class QbittorrentClient(TorrClient):
     def __init__(self):
         super().__init__()
 
-    def connect(self) -> MyQbittorrent | None:
+    def connect(self) -> qbittorrentapi.Client | None:
         try:
-            self.client = MyQbittorrent(
-                f"http://{config_settings.torrent_client_config.QBIT_HOST}:{config_settings.torrent_client_config.QBIT_PORT}/",
-                timeout=10,
-            )
+            self.client = _qbittorrent_api_client()
 
             login_count = 0
             while True:
-                login_fail = self.client.login(
-                    username=config_settings.torrent_client_config.QBIT_USER,
-                    password=config_settings.torrent_client_config.QBIT_PASS,
-                )
-                if not login_fail:
-                    break
+                try:
+                    self.client.auth_log_in()
+                    return self.client
+                except qbittorrentapi.LoginFailed:
+                    login_count += 1
+                    if login_count > 5:
+                        custom_console.bot_error_log("Failed to login.")
+                        exit(1)
+                    custom_console.bot_warning_log("Qbittorrent failed to login. Retry...Please wait")
+                    time.sleep(2)
 
-                login_count += 1
-                if login_count > 5:
-                    custom_console.bot_error_log("Failed to login.")
-                    exit(1)
-
-                custom_console.bot_warning_log("Qbittorrent failed to login. Retry...Please wait")
-                time.sleep(2)
-
-            return self.client
-
+        except qbittorrentapi.APIConnectionError:
+            custom_console.bot_error_log(f"{self.__class__.__name__} Connection Error. Check IP/port or run qBittorrent")
+        except qbittorrentapi.Forbidden403Error:
+            custom_console.bot_error_log(f"{self.__class__.__name__} Login required. Check your username and password")
         except requests.exceptions.HTTPError:
             custom_console.bot_error_log(f"{self.__class__.__name__} HTTP Error. Check IP/port or run qBittorrent")
         except requests.exceptions.ConnectionError:
             custom_console.bot_error_log(f"{self.__class__.__name__} Connection Error. Check IP/port or run qBittorrent")
-        except qbittorrent.client.LoginRequired:
-            custom_console.bot_error_log(f"{self.__class__.__name__} Login required. Check your username and password")
         except Exception as e:
             custom_console.bot_error_log(f"{self.__class__.__name__} Unexpected error: {e}")
             custom_console.bot_error_log(f"{self.__class__.__name__} Please verify your configuration")
         return None
 
-    def send_to_client(self, tracker_data_response: str, torrent: Mytorrent | None, content: Media, archive_path: str):
-        # qBittorrent "shared path"
+    @staticmethod
+    def _resolve_savepath(content: Media) -> str:
         if config_settings.torrent_client_config.SHARED_QBIT_PATH:
-            torr_location = config_settings.torrent_client_config.SHARED_QBIT_PATH
-        else:
-            # content.torrent_path is the most reliable: file or folder release
-            # Convert to absolute path first to ensure proper detection
-            base = os.path.abspath(content.torrent_path) if content.torrent_path else None
-            
-            if not base:
-                # Fallback: try to use content.file_name
-                base = os.path.abspath(content.file_name) if content.file_name else None
-            
-            if base:
-                if os.path.isfile(base):
-                    # It's a single file release, use the parent directory (where the file is located)
-                    torr_location = os.path.dirname(base)
-                elif os.path.isdir(base):
-                    # It's a folder release (dossier avec fichier vidéo dedans)
-                    # Pour -u avec un dossier, pointer vers le dossier parent du dossier de release
-                    torr_location = os.path.dirname(base)
-                else:
-                    # Path doesn't exist, try to get parent directory anyway
-                    torr_location = os.path.dirname(base)
-            else:
-                # No valid path found, use current directory as fallback
-                torr_location = os.getcwd()
+            return os.path.normpath(config_settings.torrent_client_config.SHARED_QBIT_PATH)
 
-        torr_location = os.path.normpath(torr_location)
+        base = os.path.abspath(content.torrent_path) if content.torrent_path else None
+        if not base:
+            base = os.path.abspath(content.file_name) if content.file_name else None
+
+        if base:
+            if os.path.isfile(base) or os.path.isdir(base):
+                torr_location = os.path.dirname(base)
+            else:
+                torr_location = os.path.dirname(base)
+        else:
+            torr_location = os.getcwd()
+
+        return os.path.normpath(torr_location)
+
+    def send_to_client(self, tracker_data_response: str, torrent: Mytorrent | None, content: Media, archive_path: str):
+        torr_location = self._resolve_savepath(content)
         custom_console.bot_warning_log(f"[QbittorrentClient] Forced savepath: {torr_location}")
 
-        # Compute infohash (for tagging)
+        tag = config_settings.torrent_client_config.TAG
+
         with open(archive_path, "rb") as file_buffer:
             torrent_data = file_buffer.read()
             info = bencode2.bdecode(torrent_data)[b"info"]
             info_hash = hashlib.sha1(bencode2.bencode(info)).hexdigest()
             file_buffer.seek(0)
 
-            # ✅ IMPORTANT: use torrents/add with autoTMM=false and savepath
-            self.client.add_torrent_file(
-                file_buffer=file_buffer,
-                savepath=str(torr_location),
-                tags=config_settings.torrent_client_config.TAG,
+            self.client.torrents_add(
+                torrent_files=file_buffer,
+                save_path=str(torr_location),
+                tags=tag,
+                use_auto_torrent_management=False,
             )
 
-        # Optional: enforce tags via addTags as well
         try:
-            self.client.add_tags([info_hash])
+            self.client.torrents_add_tags(tags=tag, torrent_hashes=info_hash)
         except Exception:
-            # not fatal
             pass
 
     def send_file_to_client(self, torrent_path: str, media_location: str):
-        # Keep a simple path-based call for manual usage
         with open(torrent_path, "rb") as fb:
-            self.client.add_torrent_file(
-                file_buffer=fb,
-                savepath=str(os.path.normpath(media_location)),
+            self.client.torrents_add(
+                torrent_files=fb,
+                save_path=str(os.path.normpath(media_location)),
                 tags=config_settings.torrent_client_config.TAG,
+                use_auto_torrent_management=False,
             )
 
 

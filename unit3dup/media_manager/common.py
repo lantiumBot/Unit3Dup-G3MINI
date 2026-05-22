@@ -397,36 +397,26 @@ class UserContent:
             processed_folders.add(folder_name)
             
             try:
-                # Récupérer tous les torrents de qBittorrent
-                all_torrents = client.client.torrents()
-                
-                # Chercher les torrents qui correspondent au nom du dossier
-                # Normalement on devrait en trouver 2 : un pour Gemini et un autre du tracker source
+                all_torrents = client.client.torrents_info()
+
                 matching_torrents = []
                 for torrent in all_torrents:
-                    torrent_name = torrent.get('name', '')
-                    # Le nom du torrent dans qBittorrent correspond généralement au nom du dossier
-                    # Vérifier si le nom du torrent commence par le nom du dossier ou est exactement le même
+                    torrent_name = torrent.name or ''
                     if torrent_name == folder_name or torrent_name.startswith(folder_name + '.'):
                         matching_torrents.append(torrent)
-                
-                # Modifier le savepath pour chaque torrent trouvé
+
                 if matching_torrents:
                     custom_console.bot_log(
                         f"[Watcher] Found {len(matching_torrents)} torrent(s) for folder '{folder_name}'"
                     )
                     for torrent in matching_torrents:
-                        torrent_hash = torrent.get('hash', '')
-                        torrent_name = torrent.get('name', 'unknown')
+                        torrent_hash = torrent.hash or ''
+                        torrent_name = torrent.name or 'unknown'
                         if torrent_hash:
                             try:
-                                # Utiliser l'API qBittorrent pour changer le savepath
-                                client.client._post(
-                                    "torrents/setLocation",
-                                    data={
-                                        "hashes": torrent_hash,
-                                        "location": new_savepath
-                                    }
+                                client.client.torrents_set_location(
+                                    location=new_savepath,
+                                    torrent_hashes=torrent_hash,
                                 )
                                 custom_console.bot_log(
                                     f"[Watcher] Updated qBittorrent savepath for '{torrent_name}' "
