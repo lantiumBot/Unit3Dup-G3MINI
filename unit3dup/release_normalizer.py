@@ -834,6 +834,12 @@ def _parse_release(
             name = _ws(name)
             break
 
+    # x265 + HEVC dans le même nom : HEVC est redondant, on le retire du résidu.
+    if codec and re.fullmatch(r'x265', codec, re.IGNORECASE):
+        if re.search(r'(?:^|\s)HEVC(?:\s|$)', name, re.IGNORECASE):
+            name = re.sub(r'(?:^|\s)HEVC(?:\s|$)', ' ', name, flags=re.IGNORECASE)
+            name = _ws(name)
+
     # ── 15. Fallback mediainfo si codec manquant ──────────────────────────────
     if not codec and mi:
         codec = _get_codec_from_mediainfo(mi)
