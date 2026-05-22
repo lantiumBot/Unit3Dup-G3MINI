@@ -22,10 +22,20 @@ unti3dupManyx/
 
 # Dossier de configuration local (normalement dans ~/)
 Unit3Dup_config/
+docker-data/
+config/
+docker-compose.override.yml
 
 # Config personnelle (ne jamais committer)
 *.json
 !pyproject.toml
+.env
+.env.*
+*.secret
+*.secrets
+*.key
+*.pem
+*.env
 
 # Base de données locale
 *.db

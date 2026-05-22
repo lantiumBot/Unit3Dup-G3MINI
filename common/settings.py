@@ -15,23 +15,26 @@ from common import trackers
 config_file = "Unit3Dbot.json"
 version = "0.8.21"
 
-if os.name == "nt":
-    PW_TORRENT_ARCHIVE_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "pw_torrent_archive"
-    PW_DOWNLOAD_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "pw_download"
-    WATCHER_DESTINATION_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "watcher_destination_path"
-    WATCHER_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "watcher_path"
-    CACHE_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "cache_path"
-    TORRENT_ARCHIVE_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / "torrent_archive_path"
-    DEFAULT_JSON_PATH: Path = Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config" / f"{config_file}"
+def get_config_root() -> Path:
+    """Allow container/runtime overrides while preserving historical defaults."""
+    config_root_override = os.getenv("UNIT3DUP_CONFIG_ROOT")
+    if config_root_override:
+        return Path(config_root_override).expanduser()
 
-else:
-    PW_TORRENT_ARCHIVE_PATH: Path = Path.home() / "Unit3Dup_config" / "pw_torrent_archive"
-    PW_DOWNLOAD_PATH: Path = Path.home() / "Unit3Dup_config" / "pw_download"
-    WATCHER_DESTINATION_PATH: Path = Path.home() / "Unit3Dup_config" / "watcher_destination_path"
-    WATCHER_PATH: Path = Path.home() / "Unit3Dup_config" / "watcher_path"
-    CACHE_PATH: Path = Path.home() / "Unit3Dup_config" / "cache_path"
-    TORRENT_ARCHIVE_PATH: Path = Path.home() / "Unit3Dup_config" / "torrent_archive_path"
-    DEFAULT_JSON_PATH: Path = Path.home() / "Unit3Dup_config" / f"{config_file}"
+    if os.name == "nt":
+        return Path(os.getenv("LOCALAPPDATA", ".")) / "Unit3Dup_config"
+
+    return Path.home() / "Unit3Dup_config"
+
+
+CONFIG_ROOT: Path = get_config_root()
+PW_TORRENT_ARCHIVE_PATH: Path = CONFIG_ROOT / "pw_torrent_archive"
+PW_DOWNLOAD_PATH: Path = CONFIG_ROOT / "pw_download"
+WATCHER_DESTINATION_PATH: Path = CONFIG_ROOT / "watcher_destination_path"
+WATCHER_PATH: Path = CONFIG_ROOT / "watcher_path"
+CACHE_PATH: Path = CONFIG_ROOT / "cache_path"
+TORRENT_ARCHIVE_PATH: Path = CONFIG_ROOT / "torrent_archive_path"
+DEFAULT_JSON_PATH: Path = CONFIG_ROOT / f"{config_file}"
 
 
 def get_default_path(field: str)-> str:

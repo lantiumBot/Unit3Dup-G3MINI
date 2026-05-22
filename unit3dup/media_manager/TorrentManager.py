@@ -68,7 +68,7 @@ class TorrentManager:
             content for content in contents if content.category == System.category_list.get(System.DOCUMENTARY)
         ]
 
-    def run(self, trackers_name_list: list):
+    def run(self, trackers_name_list: list) -> list[BittorrentData]:
         """
 
         Args:
@@ -80,6 +80,7 @@ class TorrentManager:
         game_process_results: list[BittorrentData] = []
         video_process_results: list[BittorrentData] = []
         docu_process_results: list[BittorrentData] = []
+        all_results: list[BittorrentData] = []
 
         for selected_tracker in trackers_name_list:
             # Build the torrent file and upload each GAME to the tracker
@@ -89,6 +90,7 @@ class TorrentManager:
                 game_process_results = game_manager.process(selected_tracker=selected_tracker,
                                                             tracker_name_list=trackers_name_list,
                                                             tracker_archive=self.tracker_archive)
+                all_results.extend(game_process_results)
 
             # Build the torrent file and upload each VIDEO to the trackers
             if self.videos:
@@ -97,6 +99,7 @@ class TorrentManager:
                 video_process_results = video_manager.process(selected_tracker=selected_tracker,
                                                               tracker_name_list=trackers_name_list,
                                                               tracker_archive=self.tracker_archive)
+                all_results.extend(video_process_results)
 
             # Build the torrent file and upload each DOC to the tracker
             if self.doc and not self.cli.reseed:
@@ -105,6 +108,7 @@ class TorrentManager:
                 docu_process_results = docu_manager.process(selected_tracker=selected_tracker,
                                                             tracker_name_list=trackers_name_list,
                                                             tracker_archive=self.tracker_archive)
+                all_results.extend(docu_process_results)
 
             # No seeding
             if self.cli.noseed or self.cli.noup:
@@ -123,6 +127,8 @@ class TorrentManager:
                 UserContent.send_to_bittorrent(docu_process_results, 'DOCUMENTARY', cli=self.cli)
             custom_console.bot_log(f"Tracker '{selected_tracker}' Done.")
             custom_console.rule()
+
+        return all_results
 
     custom_console.bot_log(f"Done.")
     custom_console.rule()

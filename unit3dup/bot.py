@@ -3,6 +3,7 @@
 from pathlib import Path
 import argparse
 import os
+import shutil
 import time
 
 from unit3dup.media import Media
@@ -100,10 +101,15 @@ class Bot:
         # We want to reseed
         if self.cli.reseed:
             torrent_manager.reseed(trackers_name_list=self.trackers_name_list)
+            return True
         else:
             # otherwise run the torrents creations and the upload process
-            torrent_manager.run(trackers_name_list=self.trackers_name_list)
-        return True
+            upload_results = torrent_manager.run(trackers_name_list=self.trackers_name_list)
+
+        if self.cli.noup:
+            return False
+
+        return self._uploads_succeeded(upload_results)
 
 
     def watcher(self, duration: int, watcher_path: str,  destination_path: str)-> bool:
@@ -160,6 +166,15 @@ class Bot:
                             custom_console.bot_warning_log(
                                 f"[Watcher] Upload failed/skipped, leaving in place -> {src}"
                             )
+                            continue
+
+                        moved_to = self._move_to_destination(src=src, done_root=done_root)
+                        if moved_to:
+                            custom_console.bot_log(f"[Watcher] Moved to destination -> {moved_to}")
+                        else:
+                            custom_console.bot_warning_log(
+                                f"[Watcher] Upload succeeded but move failed, leaving in place -> {src}"
+                            )
                 
                 # Nettoyer les fichiers .nfo isolés dans le dossier watcher après avoir traité tous les fichiers du cycle
                 self._cleanup_orphaned_nfo_files(watcher_path)
@@ -180,6 +195,35 @@ class Bot:
         except KeyboardInterrupt:
             custom_console.bot_log("Exiting...")
         return True
+
+    @staticmethod
+    def _uploads_succeeded(results) -> bool:
+        if not results:
+            return False
+
+        return all(result.tracker_response and not result.tracker_message for result in results)
+
+    @staticmethod
+    def _next_available_destination(target: Path) -> Path:
+        if not target.exists():
+            return target
+
+        counter = 1
+        while True:
+            candidate = target.with_name(f"{target.name}_{counter}")
+            if not candidate.exists():
+                return candidate
+            counter += 1
+
+    def _move_to_destination(self, src: Path, done_root: Path) -> Path | None:
+        target = self._next_available_destination(done_root / src.name)
+
+        try:
+            shutil.move(str(src), str(target))
+            return target
+        except Exception as exc:
+            custom_console.bot_warning_log(f"[Watcher] Failed to move '{src}' -> '{target}': {exc}")
+            return None
 
     def _cleanup_orphaned_nfo_files(self, watcher_path: str) -> None:
         """

@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import json
+import os
 
 import httpx
 import diskcache as dc
@@ -15,6 +16,12 @@ class MyHttp:
     """Class to handle HTTP requests"""
 
     def __init__(self, headers: dict, cache_dir: str = "http_cache"):
+        if not os.path.isabs(cache_dir):
+            cache_root = os.getenv("UNIT3DUP_HTTP_CACHE_DIR") or os.path.join(
+                os.path.expanduser("~"), cache_dir
+            )
+            cache_dir = cache_root
+
         self.session = httpx.Client(
             timeout=httpx.Timeout(30), headers=headers, verify=False
         )
