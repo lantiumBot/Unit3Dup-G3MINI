@@ -46,3 +46,13 @@ docker-compose.override.yml
 # IDE
 .idea/
 .vscode/
+
+# WEB
+web/*.json
+
+# Config
+Unit3Dbot.json
+
+# Tests
+tests/
+.claude/
