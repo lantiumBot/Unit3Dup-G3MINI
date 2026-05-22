@@ -4,6 +4,7 @@ import re
 import requests
 
 from common.external_services.igdb.core.models.search import Game
+from common.utility import ManageTitles
 from common.trackers.trackers import TRACKData
 from common.trackers.data import build_tracker_announces, download_torrent_from_url
 from common.trackers.gemini_categories import resolve_gemini_video_category
@@ -82,6 +83,14 @@ class UploadBot:
                 personal_release = 0
 
         return personal_release
+
+    @staticmethod
+    def _is_integrale_pack(content: Media) -> bool:
+        """Release intégrale (tag INTEGRALE) : season/episode doivent être 0 sur le tracker."""
+        for name in (content.torrent_name, content.display_name):
+            if name and ManageTitles.is_tv_integrale(name):
+                return True
+        return False
 
     def message(self,tracker_response: requests.Response, torrent_archive: str) -> (requests, dict):
 
@@ -173,8 +182,14 @@ class UploadBot:
         self.tracker.data["description"] = video_info.description
         self.tracker.data["sd"] = video_info.is_hd
         self.tracker.data["type_id"] = self.tracker_data.filter_type(self.content.file_name)
-        self.tracker.data["season_number"] = self.content.guess_season
-        self.tracker.data["episode_number"] = (self.content.guess_episode if not self.content.torrent_pack else 0)
+        if self._is_integrale_pack(self.content):
+            self.tracker.data["season_number"] = 0
+            self.tracker.data["episode_number"] = 0
+        else:
+            self.tracker.data["season_number"] = self.content.guess_season
+            self.tracker.data["episode_number"] = (
+                self.content.guess_episode if not self.content.torrent_pack else 0
+            )
         self.tracker.data["personal_release"] = self._check_personal_release_by_tag(release_name)
         return self.tracker
 
