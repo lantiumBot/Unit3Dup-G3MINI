@@ -73,6 +73,34 @@ Parcourt un dossier : **fichiers vidéo** → `-u`, **sous-dossiers** → `-f`.
 
 Le chemin est **obligatoire**. Pas de racine par défaut.
 
+**Série intégrale** (plusieurs saisons dans un seul torrent) : passe le dossier dont le nom contient `INTEGRALE`, pas le parent `Series/` :
+
+```text
+/storage/Upload/Series/Serie.INTEGRALE.x265-TEAM/
+├── Serie.S01.x265-TEAM/
+├── Serie.S02.x265-TEAM/
+└── Serie.S03.x265-TEAM/
+```
+
+```bash
+# Intégrale seule (1 torrent, toutes les saisons)
+./upload.sh "/storage/Upload/Series/Serie.INTEGRALE.x265-TEAM"
+
+# Intégrale + chaque pack saison (S01, S02, S03 en torrents séparés)
+./upload.sh "/storage/Upload/Series/Serie.INTEGRALE.x265-TEAM" --with-seasons
+```
+
+→ intégrale : un `unit3dup -f` sur le dossier parent ; avec `--with-seasons`, un `-f` supplémentaire par sous-dossier direct (`Serie.S01...`, etc.).  
+Sans `INTEGRALE` dans le nom, `upload.sh` enverrait chaque sous-dossier séparément (sans upload du parent).
+
+Équivalent manuel :
+
+```bash
+unit3dup -f ".../Serie.INTEGRALE.x265-TEAM"
+unit3dup -f ".../Serie.INTEGRALE.x265-TEAM/Serie.S01.x265-TEAM"
+unit3dup -f ".../Serie.INTEGRALE.x265-TEAM/Serie.S02.x265-TEAM"
+```
+
 ---
 
 ## Commandes `unit3dup`
