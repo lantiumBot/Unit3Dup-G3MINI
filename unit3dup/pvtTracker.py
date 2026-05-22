@@ -6,11 +6,11 @@ import requests
 
 from urllib.parse import urljoin
 from view import custom_console
-from common.trackers.data import trackers_api_data
+from common.trackers.data import trackers_api_data, get_credentials_for_release
 
 
 class Myhttp:
-    def __init__(self, tracker_name: str, pass_key=''):
+    def __init__(self, tracker_name: str, pass_key='', release_name: str = ''):
 
         api_data = trackers_api_data[tracker_name.upper()] if tracker_name else None
         if not api_data:
@@ -18,14 +18,16 @@ class Myhttp:
                 f"Tracker '{tracker_name}' not found. Please check your configuration or set it using the '-t' flag.")
             exit(1)
 
-        self.pass_key = pass_key
+        pid, api_key = get_credentials_for_release(release_name)
+
+        self.pass_key = pid
         self.base_url = api_data['url']
-        self.api_token = api_data['api_key']
+        self.api_token = api_key
 
         self.upload_url = urljoin(self.base_url, "api/torrents/upload")
         self.filter_url = urljoin(self.base_url, "api/torrents/filter?")
         self.fetch_url = urljoin(self.base_url, "api/torrents/")
-        self.tracker_announce_url = urljoin(self.base_url, f"announce/{pass_key}")
+        self.tracker_announce_url = urljoin(self.base_url, f"announce/{pid}")
 
         self.headers = {
             "User-Agent": "Unit3D-up/0.0 (Linux 5.10.0-23-amd64)",
@@ -334,8 +336,8 @@ class Uploader(Tracker):
         if nfo_path:
             if os.path.exists(nfo_path) and os.path.isfile(nfo_path):
                 try:
-                    nfo_file = open(nfo_path, 'rb')
-                    files['nfo'] = ('file.nfo', nfo_file, 'text/plain')
+                    nfo_data = Uploader.encode_utf8(nfo_path)
+                    files['nfo'] = ('file.nfo', nfo_data, 'text/plain; charset=cp437')
                     custom_console.bot_log(f"[Upload] Fichier NFO ajouté à l'upload: {nfo_path}")
                 except Exception as e:
                     custom_console.bot_warning_log(f"[Upload] Impossible d'ouvrir le fichier NFO: {e}")
@@ -349,42 +351,31 @@ class Uploader(Tracker):
             # Envoyer les fichiers au tracker
             response = self._post(file=files, data=data, params=self.params)
         finally:
-            # Fermer les fichiers
             torrent_file.close()
-            if nfo_file:
-                nfo_file.close()
 
         return response
 
 
     @staticmethod
-    def encode_utf8(file_path:str) -> bytes | io.BytesIO:
+    def encode_utf8(file_path: str) -> bytes | io.BytesIO:
         """
-        Try to decode the nfo file
+        Ensures the NFO is sent as CP437.
+        Unit3D always does iconv('cp437', 'utf8') on display,
+        so we must always upload CP437.
         """
-        encodings = ['utf-8', 'iso-8859-1', 'windows-1252', 'latin1']
-        decoded_content = None
-
-        # Trey to open and decode
         with open(file_path, 'rb') as f:
             raw_data = f.read()
 
-        for encoding in encodings:
-            try:
-                decoded_content = raw_data.decode(encoding)
-                break # OK
-            except (UnicodeDecodeError, TypeError):
-                continue # try next
+        # Tester UTF-8 en premier (strict) : échoue sur du CP437 étendu
+        try:
+            decoded_content = raw_data.decode('utf-8')
+            # C'est de l'UTF-8 → convertir en CP437 pour Unit3D
+            return decoded_content.encode('cp437', errors='replace')
+        except (UnicodeDecodeError, TypeError):
+            pass
 
-        # Success. Return the contents in bytes
-        if decoded_content is not None:
-            return decoded_content.encode('utf-8')
-        else:
-            error_message = "Error: Unable to read the NFO file !"
-            # Prepare a message of type File to post to the tracker
-            return io.BytesIO(error_message.encode('utf-8'))
-
-
+        # Pas de l'UTF-8 → c'est du CP437 (ou compatible), envoyer tel quel
+        return raw_data
 
 class Unit3d(filterAPI, Torrents, Uploader):
     def get_tmdb(self, tmdb_id: int, perPage: int = None) -> requests:

@@ -56,6 +56,7 @@ class Media:
         self._imdb_id: int | None = None
         self._igdb_id: int | None = None
         self._generate_title: str | None = None
+        self._release_year: int | None = None
 
 
     @property
@@ -146,6 +147,14 @@ class Media:
     @torrent_pack.setter
     def torrent_pack(self, value):
         self._torrent_pack = value
+
+    @property
+    def release_year(self) -> int | None:
+        return self._release_year
+
+    @release_year.setter
+    def release_year(self, value: int | None):
+        self._release_year = value
 
     @property
     def tmdb_id(self) -> int:
@@ -314,8 +323,10 @@ class Media:
             self._category = System.category_list.get(System.DOCUMENTARY)
             return self._category
 
-        # Search for a tv_show
-        elif self.guess_filename.guessit_season:
+        # Search for a tv_show (saison guessit ou tag intégrale)
+        elif self.guess_filename.guessit_season or ManageTitles.is_tv_integrale(
+            self.title_sanitized
+        ):
             self._category = System.category_list.get(System.TV_SHOW)
         else:
             self._category = System.category_list.get(System.MOVIE)

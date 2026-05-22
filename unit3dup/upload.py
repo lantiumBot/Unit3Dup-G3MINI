@@ -5,6 +5,8 @@ import requests
 
 from common.external_services.igdb.core.models.search import Game
 from common.trackers.trackers import TRACKData
+from common.trackers.data import build_tracker_announces, download_torrent_from_url
+from common.trackers.gemini_categories import resolve_gemini_video_category
 
 from unit3dup.pvtTracker import Unit3d
 from unit3dup.pvtDocu import PdfImages
@@ -21,7 +23,7 @@ class UploadBot:
         self.content = content
         self.tracker_name = tracker_name
         self.tracker_data = TRACKData.load_from_module(tracker_name=tracker_name)
-        self.tracker = Unit3d(tracker_name=tracker_name)
+        self.tracker = Unit3d(tracker_name=tracker_name, release_name=content.torrent_name)
 
     def normalize_release_name(self, release_name: str) -> str:
         mediainfo_text: str | None = None
@@ -33,7 +35,18 @@ class UploadBot:
         if self.content.mediafile and hasattr(self.content.mediafile, 'is_silent'):
             is_silent = self.content.mediafile.is_silent
 
-        return _normalize_release_name(release_name, mediainfo_text, is_silent)
+        tv_year = None
+        torrent_pack = False
+        if self.content.category == "tv":
+            tv_year = self.content.release_year
+            torrent_pack = bool(self.content.torrent_pack)
+        return _normalize_release_name(
+            release_name,
+            mediainfo_text,
+            is_silent,
+            tv_year=tv_year,
+            torrent_pack=torrent_pack,
+        )
 
     def _check_personal_release_by_tag(self, release_name: str) -> int:
         """
@@ -89,8 +102,8 @@ class UploadBot:
             # https://github.com/HDInnovations/UNIT3D/pull/4910/files
             # 08/09/2025
             # We have to download the torrent file to get the new random info_hash generated
-            self.download_file(url=tracker_response_body["data"],destination_path=torrent_archive)
-            return tracker_response_body["data"],{}
+            self.download_file(url=tracker_response_body["data"], destination_path=torrent_archive)
+            return tracker_response_body["data"], {}
 
         elif tracker_response.status_code == 401:
             if isinstance(_message, dict):
@@ -123,7 +136,15 @@ class UploadBot:
         custom_console.rule()
         return {}, error_message
 
-    def data(self,show_id: int , imdb_id: int, show_keywords_list: str, video_info: Video) -> Unit3d | None:
+    def data(
+        self,
+        show_id: int,
+        imdb_id: int,
+        show_keywords_list: str,
+        video_info: Video,
+        genre_ids: list[int] | None = None,
+        tv_show_type: str | None = None,
+    ) -> Unit3d | None:
 
         release_name = self.content.display_name.replace(" ", ".")
         release_name = self.normalize_release_name(release_name)
@@ -131,7 +152,20 @@ class UploadBot:
         self.tracker.data["tmdb"] = show_id
         self.tracker.data["imdb"] = imdb_id if imdb_id else 0
         self.tracker.data["keywords"] = show_keywords_list
-        self.tracker.data["category_id"] = self.tracker_data.category.get(self.content.category)
+        tracker_cat = resolve_gemini_video_category(
+            self.content.category,
+            genre_ids,
+            tv_show_type,
+        )
+        category_id = self.tracker_data.category.get(tracker_cat)
+        if category_id is None:
+            category_id = self.tracker_data.category.get(self.content.category)
+        self.tracker.data["category_id"] = category_id
+        if tracker_cat != self.content.category:
+            custom_console.bot_log(
+                f"'TRACKER CATEGORY'.. {tracker_cat} (category_id={category_id}) "
+                f"[base={self.content.category}]"
+            )
         self.tracker.data["anonymous"] = int(config_settings.user_preferences.ANON)
         self.tracker.data["resolution_id"] = self.tracker_data.resolution[self.content.screen_size]\
             if self.content.screen_size else self.tracker_data.resolution[self.content.resolution]
@@ -180,12 +214,25 @@ class UploadBot:
         return self.message(tracker_response=tracker_response, torrent_archive=torrent_archive)
 
 
-    @staticmethod
-    def download_file(url: str, destination_path: str) -> bool:
-        download = requests.get(url)
-        if download.status_code == 200:
-            # File archived
-            with open(destination_path, "wb") as file:
-                file.write(download.content)
-            return True
-        return False
+    def download_file(self, url: str, destination_path: str) -> bool:
+        """Télécharge le .torrent post-upload avec le même api_token que l'upload."""
+        from unit3dup.media_manager.common import UserContent
+
+        if not download_torrent_from_url(
+            url,
+            destination_path,
+            api_token=self.tracker.api_token,
+            headers=self.tracker.headers,
+        ):
+            return False
+
+        trackers = [self.tracker_name]
+        if UserContent.torrent_announces(
+            torrent_path=destination_path,
+            tracker_name_list=trackers,
+            selected_tracker=self.tracker_name,
+            release_name=self.content.torrent_name,
+        ):
+            expected = build_tracker_announces(trackers, self.content.torrent_name)
+            UserContent._patch_torrent_announces(destination_path, expected)
+        return True

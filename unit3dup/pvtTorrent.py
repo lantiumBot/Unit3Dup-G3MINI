@@ -5,7 +5,7 @@ import os
 import torf
 from tqdm import tqdm
 
-from common.trackers.data import trackers_api_data
+from common.trackers.data import trackers_api_data, build_tracker_announces
 from unit3dup.media import Media
 from unit3dup import config_settings
 
@@ -24,11 +24,15 @@ class Mytorrent:
         self.torrent_path = contents.torrent_path
         self.trackers_list = trackers_list
 
-        announces = []
-        # one tracker at time
-        for tracker_name in trackers_list:
-            announce = trackers_api_data[tracker_name.upper()]['announce'] if tracker_name else None
-            announces.append([announce])
+        announces = build_tracker_announces(
+            [t for t in trackers_list if t],
+            contents.torrent_name,
+        )
+        if not announces:
+            custom_console.bot_error_log(
+                "Aucune URL d'annonce tracker valide (URL ou PID manquant dans la config)."
+            )
+            exit(1)
 
         self.metainfo = json.loads(meta)
         self.mytorr = torf.Torrent(path=contents.torrent_path, trackers=announces)

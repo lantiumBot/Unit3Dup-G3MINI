@@ -118,12 +118,19 @@ def main():
         bot.run()
 
     # Watcher
-    if cli.args.watcher:
-        bot = Bot(path='', cli=cli.args, mode="auto", trackers_name_list=tracker_name_list,
-                  torrent_archive_path=tracker_archive)
+    if cli.args.watcher is not None:
+        watcher_args = cli.args.watcher
+        if watcher_args and len(watcher_args) >= 2:
+            watcher_path = watcher_args[0]
+            destination_path = watcher_args[1]
+        else:
+            watcher_path = config.user_preferences.WATCHER_PATH
+            destination_path = config.user_preferences.WATCHER_DESTINATION_PATH
 
-        bot.watcher(duration=config.user_preferences.WATCHER_INTERVAL, watcher_path=config.user_preferences.WATCHER_PATH,
-                    destination_path = config.user_preferences.WATCHER_DESTINATION_PATH)
+        bot = Bot(path='', cli=cli.args, mode="auto", trackers_name_list=tracker_name_list,
+                torrent_archive_path=tracker_archive)
+        bot.watcher(duration=config.user_preferences.WATCHER_INTERVAL, watcher_path=watcher_path,
+                    destination_path=destination_path)
 
     # ftp and upload
     if cli.args.ftp:

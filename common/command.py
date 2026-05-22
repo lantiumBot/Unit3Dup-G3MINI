@@ -30,7 +30,7 @@ class CommandLine:
 
         parser.add_argument("-reseed", "--reseed", action="store_true", help="reseed folder")
         parser.add_argument("-gentitle", "--gentitle", action="store_true", help="")
-        parser.add_argument("-watcher", "--watcher", action="store_true", help="Start watcher")
+        parser.add_argument("-watcher", "--watcher", nargs='*', default=None, help="Start watcher [watcher_path destination_path]")
 
         parser.add_argument("-notitle", "--notitle", type=str, help="")
         parser.add_argument("-tracker", "--tracker", type=str, default=config.tracker_config.MULTI_TRACKER[0],

@@ -75,6 +75,9 @@ class VideoManager:
                 if not db:
                     continue
 
+                if content.category == "tv" and db.year:
+                    content.release_year = db.year
+
                 # Update display name with Serie Title when requested by the user (-notitle)
                 if self.cli.notitle:
                     # Add generated metadata to the display_title
@@ -94,12 +97,20 @@ class VideoManager:
                 # print the title will be shown on the torrent page
                 custom_console.bot_log(f"'DISPLAYNAME'...{{{content.display_name}}}\n")
 
+                genre_ids, tv_show_type = db_online.get_classification_hints(db)
+
                 # Tracker instance
                 unit3d_up = UploadBot(content=content, tracker_name=selected_tracker, cli = self.cli)
 
                 # Get the data
-                unit3d_up.data(show_id=db.video_id, imdb_id=db.imdb_id, show_keywords_list=db.keywords_list,
-                               video_info=video_info)
+                unit3d_up.data(
+                    show_id=db.video_id,
+                    imdb_id=db.imdb_id,
+                    show_keywords_list=db.keywords_list,
+                    video_info=video_info,
+                    genre_ids=genre_ids,
+                    tv_show_type=tv_show_type,
+                )
 
                 # ── Confirmation interactive (-confirm) ───────────────────────
                 if getattr(self.cli, 'confirm', False):
@@ -132,8 +143,12 @@ class VideoManager:
                 nfo_generated = False   # True si c'est nous qui l'avons créé → à supprimer après
 
                 # Déterminer le chemin du fichier média et son répertoire
-                media_file_path = content.file_name if content.file_name else content.torrent_path
-                
+                # Pour un torrent pack, utiliser directement le dossier pour trouver le NFO
+                if content.torrent_pack:
+                    media_file_path = content.torrent_path
+                else:
+                    media_file_path = content.file_name if content.file_name else content.torrent_path
+                                
                 if not media_file_path:
                     custom_console.bot_warning_log(f"[NFO] Aucun chemin média disponible pour générer le NFO")
                 else:

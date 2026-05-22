@@ -1,10 +1,18 @@
 # -*- coding: utf-8 -*-
 
 gemini_data = {
-    "CATEGORY":{ "movie": 1,
-                 "tv": 2,
-                 "edicola": 6,
-                 "game": 4},
+    # Tableau officiel G3mini / gemini-tracker.org (Film TMDB / Série TMDB)
+    "CATEGORY": {
+        "movie": 1,
+        "tv": 2,
+        "movie_documentary": 13,
+        "tv_documentary": 14,
+        "movie_animation": 7,
+        "tv_animation": 6,
+        "tv_emission": 15,
+        "edicola": 12,
+        "game": 3,
+    },
 
     "FREELECH":{ "size20": 100,
                  "size15": 75,

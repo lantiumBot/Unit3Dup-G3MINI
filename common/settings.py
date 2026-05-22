@@ -155,6 +155,8 @@ class ConsoleOptions(BaseModel):
 class UploaderTag(BaseModel):
     """Tags d'équipe autorisés à marquer un upload comme personal_release."""
     TAGS_TEAM: list[str] = []
+    PID_OTHER: str | None = None      # Passkey alternatif pour les releases non-KFL
+    APIKEY_OTHER: str | None = None   # Clé API alternative pour les releases non-KFL
 
 
 class Validate:

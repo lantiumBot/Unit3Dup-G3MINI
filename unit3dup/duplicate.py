@@ -97,7 +97,7 @@ class Duplicate:
         self.movie_category = tracker_data.category.get("movie")
 
         # Category TvShow
-        self.serie_category = tracker_data.category.get("tvshow")
+        self.serie_category = tracker_data.category.get("tv")
 
         # Category Game
         self.game_category = tracker_data.category.get("game")

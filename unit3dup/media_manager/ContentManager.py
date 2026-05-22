@@ -84,6 +84,8 @@ class ContentManager:
         if media.category=='tv':
             # Search for the first result (Sx) in self.path
             torrent_pack = bool(re.search(r"(S\d+(?!.*E\d+))|(S\d+E\d+-E?\d+)", self.path))
+            if not torrent_pack and ManageTitles.is_tv_integrale(media.title_sanitized):
+                torrent_pack = True
         else:
             torrent_pack = False
 

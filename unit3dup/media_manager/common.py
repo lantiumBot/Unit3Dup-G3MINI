@@ -1,5 +1,6 @@
 # -*- coding: utf-8 -*-
 import os
+import shutil
 import bencode2
 import argparse
 import requests
@@ -9,7 +10,7 @@ import tempfile
 from concurrent.futures import ThreadPoolExecutor
 
 from common.torrent_clients import TransmissionClient, QbittorrentClient, RTorrentClient
-from common.trackers.data import trackers_api_data
+from common.trackers.data import build_tracker_announces, download_torrent_from_url, get_credentials_for_release
 from common.bittorrent import BittorrentData
 from common.utility import ManageTitles
 from common import config_settings
@@ -75,74 +76,134 @@ class UserContent:
 
 
     @staticmethod
-    def torrent_announces(torrent_path: str, tracker_name_list: list,selected_tracker: str) -> bool:
-        """ Add announces to a torrent file"""
+    def _normalize_announce_list(announce_list: list) -> list[list[str]]:
+        normalized: list[list[str]] = []
+        for tier in announce_list:
+            normalized.append([
+                (url.decode() if isinstance(url, bytes) else str(url)).rstrip("/")
+                for url in tier
+            ])
+        return normalized
 
+    @staticmethod
+    def _announces_match(torrent_data: dict, expected: list[list[str]]) -> bool:
+        expected_norm = UserContent._normalize_announce_list(expected)
+        if b"announce-list" in torrent_data:
+            existing_norm = UserContent._normalize_announce_list(torrent_data[b"announce-list"])
+            return existing_norm == expected_norm
+        if b"announce" in torrent_data and expected_norm:
+            existing = torrent_data[b"announce"]
+            if isinstance(existing, bytes):
+                existing = existing.decode()
+            return existing.rstrip("/") == expected_norm[0][0]
+        return False
+
+    @staticmethod
+    def torrent_announces(
+        torrent_path: str,
+        tracker_name_list: list,
+        selected_tracker: str,
+        release_name: str,
+    ) -> bool:
+        """True si les announces du .torrent ne correspondent pas (recréation ou patch)."""
         if not tracker_name_list:
-           tracker_name_list = [selected_tracker]
+            tracker_name_list = [selected_tracker]
         custom_console.bot_log(f"UPLOAD TO {tracker_name_list}")
 
-        # // Read the existing torrent file
-        with open(torrent_path, 'rb') as f:
-            # It decodes it
+        with open(torrent_path, "rb") as f:
             torrent_data = bencode2.bdecode(f.read())
 
-        announce_list_encoded = []
-        # a single tracker in the tracker_list corresponds to the '-tracker' flag from the user's CLI
-        for tracker in tracker_name_list:
-            # Get data for each tracker
-            api_data = trackers_api_data[tracker.upper()]
-            # Add to the list and encode it
-            announce_list_encoded.append([api_data['announce'].encode()])
+        expected = build_tracker_announces(tracker_name_list, release_name)
+        return not UserContent._announces_match(torrent_data, expected)
 
-        create_torrent = False
-        if b'announce-list' in torrent_data:
-            if torrent_data[b'announce-list'] != announce_list_encoded:
-                create_torrent = True
+    @staticmethod
+    def _find_existing_torrent_file(content: Media, archive_path: str) -> str | None:
+        """Archive d'abord, puis .torrent dans le dossier média."""
+        if os.path.isfile(archive_path):
+            return archive_path
+        media_dir = content.torrent_path
+        if not media_dir or not os.path.isdir(media_dir):
+            return None
+        preferred = os.path.join(media_dir, f"{content.torrent_name}.torrent")
+        if os.path.isfile(preferred):
+            return preferred
+        for name in sorted(os.listdir(media_dir)):
+            if name.lower().endswith(".torrent"):
+                return os.path.join(media_dir, name)
+        return None
 
+    @staticmethod
+    def _ensure_archive_torrent(source_path: str, archive_path: str) -> str:
+        if os.path.abspath(source_path) == os.path.abspath(archive_path):
+            return archive_path
+        os.makedirs(os.path.dirname(archive_path), exist_ok=True)
+        if not os.path.isfile(archive_path):
+            shutil.copy2(source_path, archive_path)
+        return archive_path
 
-        if b'announce' in torrent_data:
-            if torrent_data[b'announce'] != announce_list_encoded[0][0]:
-                create_torrent = True
-
-        return create_torrent
+    @staticmethod
+    def _patch_torrent_announces(torrent_path: str, announce_list: list[list[str]]) -> bool:
+        """Met à jour announce / announce-list sans recalculer les pièces."""
+        try:
+            with open(torrent_path, "rb") as f:
+                data = bencode2.bdecode(f.read())
+            if not announce_list:
+                return False
+            encoded = [[url.encode() for url in tier] for tier in announce_list]
+            data[b"announce"] = encoded[0][0]
+            data[b"announce-list"] = encoded
+            with open(torrent_path, "wb") as f:
+                f.write(bencode2.bencode(data))
+            return True
+        except (OSError, ValueError, TypeError) as exc:
+            custom_console.bot_warning_log(
+                f"Impossible de mettre à jour les announces du torrent: {exc}"
+            )
+            return False
 
     @staticmethod
     def torrent(content: Media, tracker_name_list: list, selected_tracker: str, this_path: str) -> Mytorrent | None:
         """
-        Check if a torrent file for the given content already exists
-
-        Args:
-            trackers:
-            content:
-            path: The torrent's path
-            tracker_name_list: the trackers name
-            selected_tracker: current tracker for the upload process (default tracker or -tracker )
-
-        Returns:
-            bool: True if the torrent file exists otherwise False
+        Réutilise un .torrent existant (archive ou dossier média) si possible.
+        Ne relance le hash que si aucun fichier utilisable ou si le patch announce échoue.
         """
+        if not tracker_name_list:
+            tracker_name_list = [selected_tracker]
 
-        if os.path.exists(this_path):
-            custom_console.bot_warning_log(f"\n<> Reusing the existing torrent file..'{content.torrent_path}'\n")
+        source_path = UserContent._find_existing_torrent_file(content, this_path)
+        if source_path:
+            torrent_path = UserContent._ensure_archive_torrent(source_path, this_path)
+            custom_console.bot_warning_log(
+                f"\n<> Reusing the existing torrent file.. '{torrent_path}'\n"
+            )
 
-            # Compare the exists announces and return True if it's/they are different from the request -tracker flags
-            different = UserContent.torrent_announces(torrent_path=this_path,
-                                          tracker_name_list=tracker_name_list,
-                                          selected_tracker=selected_tracker)
-            # False if we need Update the torrent file
-            if different:
-                my_torrent = Mytorrent(contents=content, meta=content.metainfo, trackers_list=tracker_name_list)
+            if UserContent.torrent_announces(
+                torrent_path=torrent_path,
+                tracker_name_list=tracker_name_list,
+                selected_tracker=selected_tracker,
+                release_name=content.torrent_name,
+            ):
+                expected = build_tracker_announces(tracker_name_list, content.torrent_name)
+                if UserContent._patch_torrent_announces(torrent_path, expected):
+                    custom_console.bot_log(
+                        "<> Tracker announces updated (piece hashes unchanged)\n"
+                    )
+                    return None
+                custom_console.bot_warning_log(
+                    "<> Announces mismatch — regenerating torrent (hash)…\n"
+                )
+                my_torrent = Mytorrent(
+                    contents=content, meta=content.metainfo, trackers_list=tracker_name_list
+                )
                 my_torrent.hash()
-                return my_torrent if my_torrent.write(overwrite=True, full_path=this_path) else None
-        else:
-            # Crea a new torrent file
-            my_torrent = Mytorrent(contents=content, meta=content.metainfo, trackers_list=tracker_name_list)
-            my_torrent.hash()
-            return my_torrent if my_torrent.write(overwrite=False, full_path=this_path) else None
+                return my_torrent if my_torrent.write(overwrite=True, full_path=torrent_path) else None
+            return None
 
-        # if it exists but no update is needed
-        return None
+        my_torrent = Mytorrent(
+            contents=content, meta=content.metainfo, trackers_list=tracker_name_list
+        )
+        my_torrent.hash()
+        return my_torrent if my_torrent.write(overwrite=False, full_path=this_path) else None
 
     @staticmethod
     def is_duplicate(content: Media, tracker_name: str,  cli: argparse.Namespace) -> bool:
@@ -205,7 +266,11 @@ class UserContent:
                             downloaded_torrent_path = tmp_file.name
                         
                         # Télécharger le torrent depuis le tracker
-                        if UserContent.download_file(bittorrent_file.tracker_response, downloaded_torrent_path):
+                        if UserContent.download_file(
+                            bittorrent_file.tracker_response,
+                            downloaded_torrent_path,
+                            release_name=bittorrent_file.content.torrent_name,
+                        ):
                             custom_console.bot_log(
                                 f"[Torrent] Downloaded torrent from tracker: {bittorrent_file.tracker_response}"
                             )
@@ -382,11 +447,10 @@ class UserContent:
                 )
 
     @staticmethod
-    def download_file(url: str, destination_path: str) -> bool:
-        download = requests.get(url)
-        if download.status_code == 200:
-            # File archived
-            with open(destination_path, "wb") as file:
-                file.write(download.content)
-            return True
-        return False
+    def download_file(url: str, destination_path: str, release_name: str = '') -> bool:
+        _, api_key = get_credentials_for_release(release_name)
+        return download_torrent_from_url(
+            url,
+            destination_path,
+            api_token=api_key or None,
+        )

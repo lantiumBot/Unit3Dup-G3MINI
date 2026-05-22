@@ -76,6 +76,39 @@ def _ws(s: str) -> str:
     return re.sub(r' {2,}', ' ', s).strip()
 
 
+def _format_season_token(raw: str) -> str:
+    m = re.match(r'S(\d{1,2})', raw, re.IGNORECASE)
+    return f"S{int(m.group(1)):02d}" if m else raw.upper()
+
+
+def _format_episode_token(raw: str) -> str:
+    m = re.match(r'S(\d{1,2})E(\d{1,3})', raw, re.IGNORECASE)
+    if not m:
+        return raw.upper()
+    return f"S{int(m.group(1)):02d}E{int(m.group(2)):02d}"
+
+
+def _extract_tv_season_episode(name: str) -> tuple[str, str, str]:
+    """
+    Extrait SxxEyy ou Sxx du nom (espaces). Retourne (nom_restant, saison, épisode).
+    """
+    episode = ""
+    season = ""
+
+    m = re.search(r'(?:^|\s)(S\d{1,2}E\d{1,3})(?:\s|$)', name, re.IGNORECASE)
+    if m:
+        episode = _format_episode_token(m.group(1))
+        name = _remove_token(name, m.group(1))
+        return _ws(name), season, episode
+
+    m = re.search(r'(?:^|\s)(S\d{1,2})(?:\s|$)', name, re.IGNORECASE)
+    if m:
+        season = _format_season_token(m.group(1))
+        name = _remove_token(name, m.group(1))
+
+    return _ws(name), season, episode
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 #  MEDIAINFO PARSERS
 # ══════════════════════════════════════════════════════════════════════════════
@@ -195,7 +228,198 @@ def _is_silent_from_mediainfo(mi: str) -> bool:
             m = re.search(r'Language\s*:\s*(\S+)', line, re.IGNORECASE)
             if m:
                 audio_langs.append(m.group(1).strip().lower())
-    return bool(audio_langs) and all(l == 'zxx' for l in audio_langs)    
+    return bool(audio_langs) and all(l == 'zxx' for l in audio_langs)
+
+
+# Priorité audio (plus haut = codec « plus gros », conservé si plusieurs pistes).
+_AUDIO_RANK: dict[str, int] = {
+    "AAC": 10,
+    "AAC2.0": 20,
+    "AAC5.1": 25,
+    "AC3": 30,
+    "DDP": 40,
+    "DDP2.0": 50,
+    "DDP5.1": 60,
+    "DDP7.1": 70,
+    "DTS": 80,
+    "DTS-HD": 90,
+    "DTS-HD.MA": 95,
+    "Atmos": 100,
+    "TrueHD": 110,
+    "TrueHD.Atmos": 120,
+}
+
+
+def _audio_rank(tag: str) -> int:
+    if not tag:
+        return 0
+    if tag in _AUDIO_RANK:
+        return _AUDIO_RANK[tag]
+    base = tag.split(".", 1)[0]
+    rank = _AUDIO_RANK.get(base, _AUDIO_RANK.get(tag, 0))
+    if re.search(r'7\.1|7ch', tag):
+        rank += 8
+    elif re.search(r'5\.1|6ch', tag):
+        rank += 5
+    elif re.search(r'2\.0|2ch', tag):
+        rank += 2
+    return rank
+
+
+def _pick_best_audio(tags: list[str]) -> str:
+    tags = [t for t in tags if t]
+    if not tags:
+        return ""
+    return max(tags, key=_audio_rank)
+
+
+def _channel_audio_suffix(ch: int) -> str:
+    if ch <= 2:
+        return "2.0"
+    if ch == 6:
+        return "5.1"
+    if ch >= 8:
+        return "7.1"
+    if ch > 0:
+        return f"{ch}ch"
+    return ""
+
+
+def _audio_tag_from_mediainfo_block(block: str) -> str:
+    fmt = ""
+    ch = 0
+    title = ""
+    for line in block.splitlines():
+        m = re.match(r'\s*Format\s*:\s*(.+)', line, re.IGNORECASE)
+        if m:
+            fmt = m.group(1).strip()
+        m = re.match(r'\s*Channel\(s\)\s*:\s*(\d+)', line, re.IGNORECASE)
+        if m:
+            ch = int(m.group(1))
+        m = re.match(r'\s*Commercial name\s*:\s*(.+)', line, re.IGNORECASE)
+        if m and not title:
+            title = m.group(1).strip()
+        m = re.match(r'\s*Title\s*:\s*(.+)', line, re.IGNORECASE)
+        if m:
+            title = m.group(1).strip()
+
+    blob = f"{fmt} {title}".upper()
+    ch_s = _channel_audio_suffix(ch)
+
+    if re.search(r'ATMOS', blob):
+        if re.search(r'TRUEHD|MLP', blob):
+            return "TrueHD.Atmos"
+        return "Atmos"
+    if re.search(r'TRUEHD|MLP FRIENDLY', blob):
+        return "TrueHD"
+    if re.search(r'MASTER AUDIO|DTS-HD MA', blob):
+        return f"DTS-HD.MA{('.' + ch_s) if ch_s else ''}"
+    if re.search(r'DTS-HD', blob):
+        return f"DTS-HD{('.' + ch_s) if ch_s else ''}"
+    if re.search(r'\bDTS\b', fmt, re.IGNORECASE):
+        return "DTS"
+    if re.search(r'E-AC-3|EAC3|DD\+|ENHANCED AC-3', blob):
+        return f"DDP{ch_s}" if ch_s else "DDP"
+    if re.search(r'AC-3|AC3|DOLBY DIGITAL', blob):
+        return "AC3"
+    if re.search(r'\bAAC\b', fmt, re.IGNORECASE):
+        return f"AAC{ch_s}" if ch_s else "AAC"
+    return ""
+
+
+def _get_audio_tags_from_mediainfo(mi: str) -> list[str]:
+    if not mi:
+        return []
+    tags: list[str] = []
+    for m in re.finditer(
+        r'^Audio(?:\s+#\d+)?\s*\n(.*?)(?=^(?:Audio|Video|Text|Menu|General)\b|\Z)',
+        mi,
+        re.MULTILINE | re.DOTALL | re.IGNORECASE,
+    ):
+        tag = _audio_tag_from_mediainfo_block(m.group(0))
+        if tag:
+            tags.append(tag)
+    return tags
+
+
+def _get_best_audio_from_mediainfo(mi: str) -> str:
+    return _pick_best_audio(_get_audio_tags_from_mediainfo(mi))
+
+
+def _collect_audio_tags_from_name(name: str) -> tuple[str, list[str]]:
+    """Détecte tous les tags audio dans le nom ; retourne (nom_restant, tags)."""
+    found: list[str] = []
+
+    if re.search(r'DTS-HDMA|DTS[-. ]?HD[-. ]?MA', name, re.IGNORECASE):
+        name = re.sub(r'DTS-HDMA|DTS[-. ]?HD[-. ]?MA', ' ', name, flags=re.IGNORECASE)
+        name = _ws(name)
+        mo = re.search(r'(?:^|\s)([0-9][.][0-9])(?:\s|$)', name)
+        dts_ch = f".{mo.group(1)}" if mo else ""
+        if mo:
+            name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
+        found.append(f"DTS-HD.MA{dts_ch}")
+
+    if re.search(r'(?:^|\s)DTS-HD(?:\s|$)', name, re.IGNORECASE):
+        name = _remove_token(name, "DTS-HD")
+        mo = re.search(r'(?:^|\s)([0-9][.][0-9])(?:\s|$)', name)
+        dts_ch = f".{mo.group(1)}" if mo else ""
+        if mo:
+            name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
+        found.append(f"DTS-HD{dts_ch}")
+
+    if re.search(r'(?:^|\s)(?:AC3-DTS|DTS-AC3)(?:\s|$)', name, re.IGNORECASE):
+        found.append("DTS")
+        name = re.sub(r'(?:^|\s)(?:AC3-DTS|DTS-AC3)(?:\s|$)', ' ', name, flags=re.IGNORECASE)
+
+    if re.search(r'(?:^|\s)DTS(?:\s|$)', name, re.IGNORECASE):
+        found.append("DTS")
+        name = _remove_token(name, "DTS")
+
+    if re.search(r'(?:^|\s)TrueHD\s+Atmos(?:\s|$)', name, re.IGNORECASE):
+        found.append("TrueHD.Atmos")
+        name = re.sub(r'(?:^|\s)TrueHD\s+Atmos(?:\s|$)', ' ', name, flags=re.IGNORECASE)
+    elif re.search(r'(?:^|\s)TrueHD(?:\s|$)', name, re.IGNORECASE):
+        found.append("TrueHD")
+        name = _remove_token(name, "TrueHD")
+
+    if re.search(r'(?:^|\s)Atmos(?:\s|$)', name, re.IGNORECASE):
+        found.append("Atmos")
+        name = _remove_token(name, "Atmos")
+
+    for pat, tag in (
+        (r'(?:^|\s)DDP\s*7\.1(?:\s|$)', "DDP7.1"),
+        (r'(?:^|\s)DDP\s*5\.1(?:\s|$)', "DDP5.1"),
+        (r'(?:^|\s)DDP\s*2\.0(?:\s|$)', "DDP2.0"),
+        (r'(?:^|\s)E-?AC-?3\s*7\.1(?:\s|$)', "DDP7.1"),
+        (r'(?:^|\s)E-?AC-?3\s*5\.1(?:\s|$)', "DDP5.1"),
+        (r'(?:^|\s)E-?AC-?3\s*2\.0(?:\s|$)', "DDP2.0"),
+        (r'(?:^|\s)DDP(?:\s|$)', "DDP"),
+        (r'(?:^|\s)E-?AC-?3(?:\s|$)', "DDP"),
+    ):
+        if re.search(pat, name, re.IGNORECASE):
+            found.append(tag)
+            name = re.sub(pat, ' ', name, flags=re.IGNORECASE)
+            name = _ws(name)
+
+    if re.search(r'(?:^|\s)AC3[-. ][0-9]', name, re.IGNORECASE):
+        found.append("AC3")
+        name = re.sub(r'(?:^|\s)AC3[-. ][0-9](?:[. ][0-9])?(?:\s|$)', ' ', name, flags=re.IGNORECASE)
+    elif re.search(r'(?:^|\s)AC3(?:\s|$)', name, re.IGNORECASE):
+        found.append("AC3")
+        name = _remove_token(name, "AC3")
+
+    for pat, tag in (
+        (r'(?:^|\s)AAC\s*5\.1(?:\s|$)', "AAC5.1"),
+        (r'(?:^|\s)AAC\s*2\.0(?:\s|$)', "AAC2.0"),
+        (r'(?:^|\s)AAC(?:\s|$)', "AAC"),
+    ):
+        if re.search(pat, name, re.IGNORECASE):
+            found.append(tag)
+            name = re.sub(pat, ' ', name, flags=re.IGNORECASE)
+            name = _ws(name)
+
+    name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
+    return _ws(name), found
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -275,12 +499,47 @@ _SOURCE_LIST = [
 # Ex: "4KLight BluRay" → source = "4KLight.BluRay"
 _SOURCE_QUAL_LIST = ["4KLight", "HDLight", "mHD"]
 
+# Platforms
+_PLATFORM_LIST = ["AMZN", "NF", "DSNP", "HULU", "ATVP", "PCOK", "MAX", "HBO"]
+
+_NON_TEAM_SUFFIXES = {
+    # Extensions / contenants
+    "MKV", "MP4", "AVI", "M2TS", "TS", "ISO",
+    # Resolution / video tags
+    "2160P", "1080P", "1080I", "720P", "576P", "480P", "4K", "UHD",
+    "X264", "X265", "H264", "H265", "AVC", "HEVC", "AV1", "VP9", "VC1", "MPEG2",
+    # Sources
+    "WEB", "WEBRIP", "WEBDL", "BLURAY", "BDRIP", "HDRIP", "HDTV", "TVRIP", "DVDRIP", "REMUX",
+    # Langues
+    "FRENCH", "MULTI", "MULTIC", "VFF", "VFQ", "VF2", "VFB", "VOSTFR", "SUBFRENCH", "VOF", "VOQ", "VOB",
+    # Audio
+    "DTS", "DTSHD", "DTSHDMA", "AC3", "DDP", "TRUEHD", "ATMOS", "AAC",
+    # HDR / extras courants
+    "HDR", "HDR10", "HDR10P", "DV", "HLG", "SDR", "NOTAG",
+}
+
+
+def _is_team_suffix_candidate(suffix: str) -> bool:
+    s = suffix.upper()
+    # Tokens épisode/saison et autres suffixes techniques ne sont pas des teams.
+    if re.fullmatch(r'S\d{1,2}E\d{1,3}', s):
+        return False
+    if re.fullmatch(r'S\d{1,2}', s):
+        return False
+    return s not in _NON_TEAM_SUFFIXES
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 #  PARSER PRINCIPAL
 # ══════════════════════════════════════════════════════════════════════════════
 
-def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = False) -> str:
+def _parse_release(
+    original: str,
+    mi: Optional[str] = None,
+    is_silent: bool = False,
+    tv_year: Optional[int] = None,
+    torrent_pack: bool = False,
+) -> str:
     name = original
 
     # ── 1. Extension ─────────────────────────────────────────────────────────
@@ -305,7 +564,7 @@ def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = Fa
         m = re.search(r'\.([A-Za-z0-9]{2,12})$', name_team)
         if m:
             suffix = m.group(1)
-            if not re.match(r'^(COM|NET|ORG|IO|FR|MKV|MP4|AVI|MP3|AAC)$', suffix, re.IGNORECASE):
+            if _is_team_suffix_candidate(suffix):
                 team = suffix
                 # Coupe au niveau de name_team (avant les éventuelles parens de fin)
                 cut_pos = name_team.rfind(f'.{suffix}')
@@ -337,6 +596,8 @@ def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = Fa
     name = re.sub(r'DTS[\s_-]*HD[\s_-]*MA',                'DTS-HDMA', name, flags=re.IGNORECASE)
     name = re.sub(r'DTS[\s_-]*HD[\s_-]*RA',                'DTS-HDMA', name, flags=re.IGNORECASE)
     name = re.sub(r'WEB-Rip',                               'WEBRip',   name, flags=re.IGNORECASE)
+    name = re.sub(r'(?<!\w)H\s+264(?!\w)',                  'H264',     name, flags=re.IGNORECASE)
+    name = re.sub(r'(?<!\w)H\s+265(?!\w)',                  'H265',     name, flags=re.IGNORECASE)
     # 4KLight (variable separators) → 4KLight
     name = re.sub(r'4K[\s._-]*LIGHT',                       '4KLight',  name, flags=re.IGNORECASE)
     # MULTi-VFF/VFQ/VF2/VFB (tiret) → MULTi.VFF etc.
@@ -384,6 +645,18 @@ def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = Fa
             year = m.group(1)
             name = re.sub(rf'(?:^|\s){re.escape(year)}(?:\s|$)', ' ', name)
     name = _ws(name)
+
+    if not year and tv_year:
+        year = str(tv_year)
+
+    # ── 6b. Saison / épisode (séries) ─────────────────────────────────────────
+    if re.search(r'(?:^|\s)COMPLETE(?:\s|$)', name, re.IGNORECASE):
+        name = _remove_token(name, "COMPLETE")
+        name = _ws(name)
+    name, season, episode = _extract_tv_season_episode(name)
+    is_integrale = bool(re.search(r"(?:^|\s)INTEGRALE(?:\s|$)", name, re.IGNORECASE))
+    is_tv = bool(season or episode or is_integrale)
+    is_season_pack = bool(season) and not episode and (torrent_pack or is_integrale)
 
     # ── 7. Extras ─────────────────────────────────────────────────────────────
     extras = ""
@@ -531,94 +804,25 @@ def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = Fa
         remux = "REMUX"
         name = _remove_token(name, "REMUX")
 
-    for leftover in ("Netflix", "hdlight", "mHD", "NF", "AMZN", "DSNP", "HULU", "ATVP", "PCOK",
-                     "Disney", "AppleTV", "Paramount", "MAX", "HBO"):
+    platform = ""
+    for p in _PLATFORM_LIST:
+        if re.search(rf'(?:^|\s){re.escape(p)}(?:\s|$)', name, re.IGNORECASE):
+            platform = p
+            name = _remove_token(name, p)
+            break
+
+    for leftover in ("Netflix", "Disney", "AppleTV", "Paramount"):
         name = _remove_token(name, leftover)
 
-    # ── 13. Audio — par famille indépendante (multi-codec possible) ───────────
-    audio_parts = []
+    # ── 13. Audio — un seul tag (le plus prioritaire) ─────────────────────────
+    name, audio_tags = _collect_audio_tags_from_name(name)
+    audio = _pick_best_audio(audio_tags)
 
-    # Famille DTS
-    if re.search(r'DTS-HDMA|DTS[-. ]?HD[-. ]?MA', name, re.IGNORECASE):
-        name = re.sub(r'DTS-HDMA|DTS[-. ]?HD[-. ]?MA', ' ', name, flags=re.IGNORECASE)
-        name = _ws(name)
-        mo = re.search(r'(?:^|\s)([0-9][.][0-9])(?:\s|$)', name)
-        dts_ch = f".{mo.group(1)}" if mo else ""
-        if mo:
-            name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
-        audio_parts.append(f"DTS-HD.MA{dts_ch}")
+    if not audio and mi:
+        audio = _get_best_audio_from_mediainfo(mi)
 
-    elif re.search(r'(?:^|\s)DTS-HD(?:\s|$)', name, re.IGNORECASE):
-        name = _remove_token(name, "DTS-HD")
-        mo = re.search(r'(?:^|\s)([0-9][.][0-9])(?:\s|$)', name)
-        dts_ch = f".{mo.group(1)}" if mo else ""
-        if mo:
-            name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
-        audio_parts.append(f"DTS-HD{dts_ch}")
-
-    elif re.search(r'(?:^|\s)(?:AC3-DTS|DTS-AC3)(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DTS")
-        name = re.sub(r'(?:^|\s)(?:AC3-DTS|DTS-AC3)(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-
-    elif re.search(r'(?:^|\s)DTS(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DTS")
-        name = _remove_token(name, "DTS")
-
-    # Famille TrueHD / Atmos
-    if re.search(r'(?:^|\s)TrueHD\s+Atmos(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("TrueHD.Atmos")
-        name = re.sub(r'(?:^|\s)TrueHD\s+Atmos(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)TrueHD(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("TrueHD")
-        name = _remove_token(name, "TrueHD")
-        if re.search(r'(?:^|\s)Atmos(?:\s|$)', name, re.IGNORECASE):
-            audio_parts[-1] = "TrueHD.Atmos"
-            name = _remove_token(name, "Atmos")
-    elif re.search(r'(?:^|\s)Atmos(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("Atmos")
-        name = _remove_token(name, "Atmos")
-
-    # Famille DDP
-    if re.search(r'(?:^|\s)DDP\s*7\.1(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DDP7.1")
-        name = re.sub(r'(?:^|\s)DDP\s*7\.1(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)DDP\s*5\.1(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DDP5.1")
-        name = re.sub(r'(?:^|\s)DDP\s*5\.1(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)DDP\s*2\.0(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DDP2.0")
-        name = re.sub(r'(?:^|\s)DDP\s*2\.0(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)DDP(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("DDP")
-        name = _remove_token(name, "DDP")
-
-    # Famille AC3
-    if re.search(r'(?:^|\s)AC3[-. ][0-9]', name, re.IGNORECASE):
-        audio_parts.append("AC3")
-        name = re.sub(r'(?:^|\s)AC3[-. ][0-9](?:[. ][0-9])?(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)AC3(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("AC3")
-        name = _remove_token(name, "AC3")
-
-    # Famille AAC
-    if re.search(r'(?:^|\s)AAC\s*5\.1(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("AAC5.1")
-        name = re.sub(r'(?:^|\s)AAC\s*5\.1(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)AAC\s*2\.0(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("AAC2.0")
-        name = re.sub(r'(?:^|\s)AAC\s*2\.0(?:\s|$)', ' ', name, flags=re.IGNORECASE)
-    elif re.search(r'(?:^|\s)AAC(?:\s|$)', name, re.IGNORECASE):
-        audio_parts.append("AAC")
-        name = _remove_token(name, "AAC")
-
-    # Channel tokens orphelins résiduels
-    name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
-
-    # Film muet : on vide le codec audio
     if lang == "MUET":
-        audio_parts = []
-
-    audio = '.'.join(audio_parts)
+        audio = ""
 
     # ── 14. Codec vidéo ───────────────────────────────────────────────────────
     codec = ""
@@ -662,17 +866,33 @@ def _parse_release(original: str, mi: Optional[str] = None, is_silent: bool = Fa
 
     # ── Reconstruction ────────────────────────────────────────────────────────
     new = title
-    if year:        new += f".{year}"
-    if extras:      new += extras        # commence déjà par '.'
-    if lang:        new += f".{lang}"
+    if year:
+        new += f".{year}"
+    if is_tv:
+        if episode:
+            new += f".{episode}"
+        elif season:
+            new += f".{season}"
+            if is_season_pack:
+                new += ".COMPLETE"
+    if extras:
+        new += extras        # commence déjà par '.'
+    if lang:
+        new += f".{lang}"
     if res:         new += f".{res}"
     if hdr:         new += f".{hdr}"
+    if platform:    new += f".{platform}"
     if source:      new += f".{source}"
     if full_disc:   new += f".{full_disc}"
     if remux:       new += f".{remux}"
     if audio:       new += f".{audio}"
     if codec:       new += f".{codec}"
-    if team:        new += f"-{team}"
+    if team:
+        new += f"-{team}"
+    else:
+        # Si aucun tag d'équipe n'est present en suffixe, forcer -NoTag
+        # uniquement dans le release_name final (sans modifier le fichier source).
+        new += "-NoTag"
     new += ext
 
     new = re.sub(r'\.{2,}', '.', new)
@@ -687,5 +907,13 @@ def normalize_release_name(
     release_name: str,
     mediainfo_text: Optional[str] = None,
     is_silent: bool = False,
+    tv_year: Optional[int] = None,
+    torrent_pack: bool = False,
 ) -> str:
-    return _parse_release(release_name, mediainfo_text, is_silent)
+    return _parse_release(
+        release_name,
+        mediainfo_text,
+        is_silent,
+        tv_year=tv_year,
+        torrent_pack=torrent_pack,
+    )

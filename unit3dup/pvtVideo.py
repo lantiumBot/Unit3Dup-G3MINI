@@ -13,6 +13,14 @@ from view import custom_console
 from unit3dup import config_settings
 from unit3dup.media import Media
 
+_YOUTUBE_TRAILER_KEY_RE = re.compile(r"^[A-Za-z0-9_-]{6,}$")
+
+
+def _is_valid_youtube_trailer_key(key) -> bool:
+    if not key or key == "not available":
+        return False
+    return bool(_YOUTUBE_TRAILER_KEY_RE.match(str(key).strip()))
+
 
 class Video:
     """ Build a description for the torrent page: screenshots, mediainfo, trailers, metadata """
@@ -111,7 +119,7 @@ class Video:
             build_description = Build(extracted_frames=extracted_frames_webp + extracted_frames, filename=self.display_name)
             self.description = build_description.description()
 
-            if self.trailer_key:
+            if _is_valid_youtube_trailer_key(self.trailer_key):
                 self.description += (
                     f"[b][spoiler=Spoiler: PLAY TRAILER][center][youtube]{self.trailer_key}[/youtube]"
                     f"[/center][/spoiler][/b]"

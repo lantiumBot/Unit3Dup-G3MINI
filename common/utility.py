@@ -113,6 +113,16 @@ class ManageTitles:
             subdir = subdir.replace(res, " ")
         return subdir
 
+    _TV_INTEGRALE_RE = re.compile(r"(?:^|[.\s_-])INTEGRALE(?:$|[.\s_-])", re.IGNORECASE)
+
+    @staticmethod
+    def is_tv_integrale(text: str) -> bool:
+        """Indique une release série intégrale (sans Sxx obligatoire dans le nom)."""
+        if not text:
+            return False
+        normalized = text.replace(".", " ").replace("_", " ")
+        return bool(ManageTitles._TV_INTEGRALE_RE.search(normalized))
+
     @staticmethod
     def media_docu_type(file_name: str) -> str | None:
         """

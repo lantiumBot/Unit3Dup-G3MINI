@@ -126,12 +126,11 @@ def get_genres(movie: dict) -> str:
 
 
 def get_trailer_url(videos: dict) -> Optional[str]:
-    """Récupère l'URL de la bande-annonce YouTube"""
-    results = videos.get("results", [])
-    for video in results:
-        if video.get("type") == "Trailer" and video.get("site") == "YouTube":
-            return f"https://www.youtube.com/watch?v={video.get('key')}"
-    return None
+    """Récupère l'URL de la bande-annonce YouTube (Trailer officiel → Teaser → Clip)."""
+    from common.external_services.theMovieDB.core.trailer_select import pick_youtube_trailer_key
+
+    key = pick_youtube_trailer_key(videos.get("results", []))
+    return f"https://www.youtube.com/watch?v={key}" if key else None
 
 
 def get_cast_images(credits: dict, max_images: int = 4) -> str:

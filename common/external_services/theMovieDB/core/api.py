@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import os
 import hashlib
+import inspect
 from datetime import datetime
 
 import diskcache
@@ -15,6 +16,7 @@ from common.external_services.theMovieDB.core.models.tvshow.tvshow import TvShow
 from common.external_services.theMovieDB.core.models.movie.movie import Movie
 from common.external_services.theMovieDB.core.keywords import Keyword
 from common.external_services.theMovieDB.core.videos import Videos
+from common.external_services.theMovieDB.core.trailer_select import pick_youtube_trailer_key
 from common.external_services.mediaresult import MediaResult
 from common.external_services.sessions.session import MyHttp
 from common.external_services.trailers.api import YtTrailer
@@ -32,6 +34,8 @@ from unit3dup import config_settings
 base_url = "https://api.themoviedb.org/3"
 ENABLE_LOG = True
 T = TypeVar('T')
+_USE_DEFAULT_LANG = object()
+TMDB_TRAILER_LANG_FALLBACK = ("fr-FR", "en-US", None)
 
 class MovieEndpoint:
     @staticmethod
@@ -168,10 +172,15 @@ class TmdbAPI(MyHttp):
             print(f"Endpoint for category '{category}' not found.")
             return []
 
-    def _videos(self, video_id: int, category: str) -> list[T] | None:
+    def _videos(
+        self,
+        video_id: int,
+        category: str,
+        language: str | None | object = _USE_DEFAULT_LANG,
+    ) -> list[T] | None:
         if endpoint_class:=self.ENDPOINTS.get(category):
             request = endpoint_class.videos(video_id)
-            return self.request(endpoint=request)
+            return self.request(endpoint=request, language=language)
         else:
             print(f"Endpoint for category '{category}' not found.")
             return []
@@ -194,13 +203,24 @@ class TmdbAPI(MyHttp):
             return []
 
 
-    def request(self, endpoint: dict) -> list[T] | None:
+    def request(
+        self,
+        endpoint: dict,
+        language: str | None | object = _USE_DEFAULT_LANG,
+    ) -> list[T] | None:
         """
         Sends a request to the API and returns a list of instances of the specified 'datatype'.
         :param endpoint: request endpoint
+        :param language: langue TMDB (fr-FR, en-US), None = sans paramètre language
         :return: list of T or None
         """
         params = {**TmdbAPI.params, "query": endpoint['query']}
+        if language is _USE_DEFAULT_LANG:
+            pass
+        elif language is None:
+            params.pop("language", None)
+        else:
+            params["language"] = language
         response = self.get_url(endpoint['url'], params=params)
 
         if response:
@@ -210,10 +230,31 @@ class TmdbAPI(MyHttp):
                 else:
                     response_data = response.json().get(endpoint['results'], [])
 
-                return [endpoint['datatype'](**attribute) for attribute in response_data]
+                datatype = endpoint['datatype']
+                return [self._build_datatype(datatype, attribute) for attribute in response_data]
             else:
                 return []
         return None
+
+    @staticmethod
+    def _build_datatype(datatype, attribute: dict):
+        """
+        Build endpoint datatypes while ignoring unknown API fields.
+        TMDB may add fields (e.g. `softcore`) not present in our dataclasses.
+        """
+        if not isinstance(attribute, dict):
+            return datatype(**attribute)
+
+        try:
+            return datatype(**attribute)
+        except TypeError as exc:
+            # Only fallback for unexpected keyword fields; re-raise other TypeErrors.
+            if "unexpected keyword argument" not in str(exc):
+                raise
+
+            allowed = set(inspect.signature(datatype).parameters.keys())
+            filtered = {key: value for key, value in attribute.items() if key in allowed}
+            return datatype(**filtered)
 
 class DbOnline(TmdbAPI):
     def __init__(self, media: Media, category: str, no_title: str) -> None:
@@ -386,7 +427,7 @@ class DbOnline(TmdbAPI):
     def youtube_trailer(self) -> str | None:
         # Search trailer on YouTube
         if 'no_key'  in config_settings.tracker_config.YOUTUBE_KEY:
-            return "not available"
+            return None
 
         yt_trailer = YtTrailer(self.query)
         result = yt_trailer.get_trailer_link()
@@ -399,23 +440,20 @@ class DbOnline(TmdbAPI):
                 user_youtube_id = custom_console.user_input_str(message="Title not found."
                                                                         " Please digit a valid Youtube ID (0=skip)->")
                 if user_youtube_id==0:
-                    return "not available"
+                    return None
                 return user_youtube_id
             return None
 
     def trailer(self, video_id: int) -> str | None:
-        # Search for tmdb trailer
-        trailers = self._videos(video_id, self.category)
-        if trailers:
-            trailer = next((video for video in trailers if video.type.lower() == 'trailer'
-                            and video.site.lower() == 'youtube'), None)
-            if trailer:
-                return trailer.key
-            else:
-                return "not available"
-
-        # Search for YouTube trailer
-        return self.youtube_trailer()
+        """Bande-annonce YouTube via /movie|tv/{id}/videos (fr-FR → en-US → sans langue)."""
+        for lang in TMDB_TRAILER_LANG_FALLBACK:
+            videos = self._videos(video_id, self.category, language=lang)
+            if not videos:
+                continue
+            key = pick_youtube_trailer_key(videos)
+            if key:
+                return key
+        return None
 
     def keywords(self, video_id: int) -> str | None:
         keywords_list = self._keywords(video_id, self.category)
@@ -432,6 +470,50 @@ class DbOnline(TmdbAPI):
                 custom_console.bot_warning_log(f"_'IMDB ID'_........ '{results.imdb_id}'")
             custom_console.bot_log(f"'TMDB KEYWORDS'.. {results.keywords_list}")
             custom_console.bot_log(f"'TRAILER CODE' .. {results.trailer_key}")
+
+    @staticmethod
+    def _genre_ids_from(genres) -> list[int]:
+        """Extrait les IDs TMDB (dict JSON ou dataclass Genre)."""
+        ids: list[int] = []
+        for g in genres:
+            if isinstance(g, dict):
+                ids.append(int(g["id"]))
+            else:
+                ids.append(int(g.id))
+        return ids
+
+    def get_classification_hints(self, media_result: MediaResult) -> tuple[list[int], str | None]:
+        """
+        Genres TMDB (IDs) et type d'émission pour les séries (champ ``type`` des détails TMDB).
+        Un appel ``details`` complète les infos si la recherche ne les fournit pas.
+        """
+        vid = media_result.video_id
+        if not vid:
+            return [], None
+
+        genre_ids: list[int] = []
+        tv_type: str | None = None
+        r = media_result.result
+
+        if r is not None:
+            if getattr(r, "genres", None):
+                genre_ids = self._genre_ids_from(r.genres)
+            elif getattr(r, "genre_ids", None):
+                genre_ids = list(r.genre_ids)
+            if self.category == "tv":
+                tv_type = getattr(r, "type", None) or None
+
+        needs_details = not genre_ids or (self.category == "tv" and not tv_type)
+        if needs_details:
+            det = self.details(vid, self.category)
+            if det:
+                d0 = det[0]
+                if not genre_ids and getattr(d0, "genres", None):
+                    genre_ids = self._genre_ids_from(d0.genres)
+                if self.category == "tv" and not tv_type:
+                    tv_type = getattr(d0, "type", None) or None
+
+        return genre_ids, tv_type
 
 
     def load_cache(self, query: str)-> MediaResult | None:
