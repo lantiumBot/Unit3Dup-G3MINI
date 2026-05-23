@@ -1,0 +1,42 @@
+{% extends "base.html" %}
+{% block title %}Status{% endblock %}
+{% block content %}
+
+<div class="d-flex align-items-center justify-content-between mb-4">
+  <h5 class="mb-0 fw-bold">
+    <i class="bi bi-activity me-2 text-info"></i>
+    <span data-i18n="status.title">État des services</span>
+  </h5>
+  <div class="d-flex align-items-center gap-2">
+    <span class="text-muted small font-mono" id="status-ts"></span>
+    <button class="btn btn-sm btn-outline-secondary" onclick="refresh()">
+      <i class="bi bi-arrow-clockwise me-1"></i>
+      <span data-i18n="common.refresh">Actualiser</span>
+    </button>
+  </div>
+</div>
+
+<!-- ── Service cards ────────────────────────────────────────────────────── -->
+<div id="status-grid" class="row g-3">
+  {% for _ in range(6) %}
+  <div class="col-md-6 col-xl-4">
+    <div class="card border-0 shadow-sm h-100">
+      <div class="card-body d-flex align-items-center gap-3 py-3">
+        <div class="placeholder-glow">
+          <span class="placeholder rounded-circle" style="width:2.5rem;height:2.5rem;display:block"></span>
+        </div>
+        <div class="flex-grow-1 placeholder-glow">
+          <span class="placeholder col-5 d-block mb-2" style="height:.8rem"></span>
+          <span class="placeholder col-8 d-block" style="height:.65rem"></span>
+          <span class="placeholder col-4 d-block mt-2" style="height:.65rem"></span>
+        </div>
+      </div>
+    </div>
+  </div>
+  {% endfor %}
+</div>
+
+{% endblock %}
+{% block scripts %}
+<script src="/static/js/status.js"></script>
+{% endblock %}

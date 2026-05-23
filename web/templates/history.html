@@ -1,0 +1,228 @@
+{% extends "base.html" %}
+{% block title %}Historique{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-4">
+  <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i><span data-i18n="history.title">Historique des uploads</span></h5>
+  <div class="ms-auto d-flex gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="refreshHistory()">
+      <i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="common.refresh">Actualiser</span>
+    </button>
+    <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()">
+      <i class="bi bi-trash me-1"></i><span data-i18n="history.clear_btn">Effacer tout</span>
+    </button>
+  </div>
+</div>
+
+<!-- Summary badges -->
+<div class="d-flex flex-wrap gap-2 mb-3" id="hist-summary"></div>
+
+<!-- Table -->
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle" id="hist-table">
+    <thead class="table-dark">
+      <tr>
+        <th data-i18n="history.col.name">Nom</th>
+        <th data-i18n="history.col.type">Type</th>
+        <th data-i18n="history.col.tag">Tag</th>
+        <th data-i18n="history.col.date">Traité le</th>
+        <th data-i18n="history.col.upload">Upload</th>
+        <th data-i18n="history.col.qbit">qBit</th>
+        <th data-i18n="history.col.size">Taille</th>
+        <th data-i18n="history.col.ratio">Ratio</th>
+        <th data-i18n="history.col.speed">↑ Vitesse</th>
+        <th data-i18n="history.col.json">JSON</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody id="hist-body">
+      <tr><td colspan="11" class="text-center text-muted py-4">
+        <i class="bi bi-hourglass-split me-2"></i><span data-i18n="common.loading">Chargement…</span>
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Modal détail JSON + console -->
+<div class="modal fade" id="detail-modal" tabindex="-1">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header py-2">
+        <h6 class="modal-title font-mono text-truncate" id="detail-title"></h6>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-header py-0 border-top-0 border-bottom">
+        <ul class="nav nav-tabs card-header-tabs" role="tablist">
+          <li class="nav-item">
+            <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#detail-tab-json" type="button">
+              <i class="bi bi-braces me-1"></i><span data-i18n="history.tab.json">JSON</span>
+            </button>
+          </li>
+          <li class="nav-item">
+            <button class="nav-link" data-bs-toggle="tab" data-bs-target="#detail-tab-console" type="button">
+              <i class="bi bi-terminal me-1"></i><span data-i18n="history.tab.console">Console</span>
+            </button>
+          </li>
+        </ul>
+      </div>
+      <div class="modal-body p-0 tab-content">
+        <div class="tab-pane fade show active" id="detail-tab-json" role="tabpanel">
+          <pre id="detail-json" class="terminal font-mono small mb-0 p-3"
+               style="max-height:70vh;min-height:240px;white-space:pre-wrap;border-radius:0">{}</pre>
+        </div>
+        <div class="tab-pane fade" id="detail-tab-console" role="tabpanel">
+          <div class="terminal font-mono small" id="detail-console"
+               style="max-height:70vh;min-height:240px;border-radius:0"></div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+"use strict";
+
+async function refreshHistory() {
+  const resp = await fetch("/api/history");
+  const rows = await resp.json();
+  renderHistory(rows);
+}
+
+function renderHistory(rows) {
+  const tbody = document.getElementById("hist-body");
+  const done  = rows.filter(r => r.status === "done").length;
+  const errs  = rows.filter(r => r.status === "error").length;
+
+  document.getElementById("hist-summary").innerHTML = `
+    <span class="badge bg-secondary fs-6">${t("history.badge.total", rows.length)}</span>
+    <span class="badge bg-success fs-6">${t("history.badge.ok", done)}</span>
+    ${errs ? `<span class="badge bg-danger fs-6">${t("history.badge.errors", errs)}</span>` : ""}
+  `;
+
+  if (!rows.length) {
+    tbody.innerHTML = `<tr><td colspan="11" class="text-center text-muted py-5">
+      <i class="bi bi-inbox fs-2 d-block mb-2"></i>${t("history.empty")}
+    </td></tr>`;
+    return;
+  }
+
+  const typeBadge = {
+    integrale: "bg-info text-dark",
+    season:    "bg-success",
+    file:      "bg-warning text-dark",
+    unknown:   "bg-secondary",
+  };
+  const typeKey = {
+    integrale: "history.type.integrale",
+    season:    "history.type.season",
+    file:      "history.type.file",
+    unknown:   "history.type.unknown",
+  };
+
+  tbody.innerHTML = rows.map(r => {
+    const upBadge = r.status === "done"
+      ? `<span class="badge bg-success">${t("history.upload.ok")}</span>`
+      : r.status === "error"
+      ? `<span class="badge bg-danger">${t("history.upload.error")}</span>`
+      : `<span class="badge bg-secondary">${esc(r.status)}</span>`;
+
+    const qbit = r.torrent;
+    const qbitBadge = qbit
+      ? `<span class="badge bg-${qbit.state_class}">${esc(qbit.state_label)}</span>`
+      : `<span class="text-muted small">—</span>`;
+    const sizeCell  = qbit ? qbit.size_human : "—";
+    const ratioCell = qbit
+      ? `<span class="${qbit.ratio >= 1 ? 'text-success' : 'text-warning'} fw-bold">${qbit.ratio}</span>`
+      : "—";
+    const speedCell = qbit && qbit.upload_speed > 0
+      ? `<span class="text-info font-mono">${qbit.upload_speed_human}</span>`
+      : "—";
+
+    const jsonCell = (r.has_detail || r.has_result)
+      ? `<button class="btn btn-xs btn-outline-info py-0 px-2"
+                data-job-id="${esc(r.job_id)}" data-job-name="${esc(r.name)}"
+                onclick="showHistoryDetail(this.dataset.jobId, this.dataset.jobName)"
+                title="${t('history.btn.json_title')}">
+           <i class="bi bi-braces"></i>
+         </button>`
+      : `<span class="text-muted small">—</span>`;
+
+    const dt = r.processed_at
+      ? new Date(r.processed_at).toLocaleString(i18n.dateLocale())
+      : "—";
+
+    return `<tr>
+      <td class="font-mono small text-truncate" style="max-width:260px" title="${esc(r.path)}">${esc(r.name)}</td>
+      <td><span class="badge ${typeBadge[r.type] || 'bg-secondary'}">${t(typeKey[r.type] || "history.type.unknown")}</span></td>
+      <td><span class="badge bg-dark border font-mono">${esc(r.tag || "—")}</span></td>
+      <td class="small text-nowrap">${dt}</td>
+      <td>${upBadge}</td>
+      <td>${qbitBadge}</td>
+      <td class="small text-nowrap">${sizeCell}</td>
+      <td class="small">${ratioCell}</td>
+      <td class="small text-nowrap">${speedCell}</td>
+      <td class="text-center">${jsonCell}</td>
+      <td>
+        <button class="btn btn-xs btn-outline-warning py-0 px-1" onclick="removeItem('${esc(r.path)}')"
+                title="${t('history.btn.remove_title')}">
+          <i class="bi bi-arrow-counterclockwise"></i>
+        </button>
+      </td>
+    </tr>`;
+  }).join("");
+}
+
+async function removeItem(path) {
+  await fetch("/api/history/item", {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ path }),
+  });
+  showToast(t("history.toast.removed"), "success");
+  refreshHistory();
+}
+
+async function clearHistory() {
+  if (!confirm(t("history.confirm.clear"))) return;
+  await fetch("/api/history", { method: "DELETE" });
+  showToast(t("history.toast.cleared"), "success");
+  refreshHistory();
+}
+
+async function showHistoryDetail(jobId, name) {
+  const title = document.getElementById("detail-title");
+  const jsonEl = document.getElementById("detail-json");
+  const conEl  = document.getElementById("detail-console");
+  title.textContent = name;
+  jsonEl.textContent = t("common.loading");
+  conEl.textContent  = "";
+  bootstrap.Modal.getOrCreateInstance(document.getElementById("detail-modal")).show();
+
+  try {
+    const resp = await fetch(`/api/history/detail/${encodeURIComponent(jobId)}`);
+    if (!resp.ok) {
+      jsonEl.textContent = t("history.json.empty");
+      return;
+    }
+    const data = await resp.json();
+    // JSON complet de l'enregistrement (sans masquer result)
+    jsonEl.textContent = JSON.stringify(data, null, 2);
+    conEl.textContent  = data.transcript || t("history.console.empty");
+  } catch {
+    jsonEl.textContent = t("history.json.empty");
+  }
+}
+
+function esc(s) {
+  return String(s || "").replace(/[&<>"']/g,
+    c => ({"&":"&amp;","<":"&lt;",">":"&gt;","\"":"&quot;","'":"&#39;"}[c])
+  );
+}
+
+document.addEventListener("DOMContentLoaded", refreshHistory);
+document.addEventListener("locale-changed", refreshHistory);
+setInterval(refreshHistory, 30000);
+</script>
+{% endblock %}

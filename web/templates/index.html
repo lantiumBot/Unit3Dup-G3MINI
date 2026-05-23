@@ -1,0 +1,114 @@
+{% extends "base.html" %}
+{% block title %}Jobs{% endblock %}
+
+{% block content %}
+
+<!-- ── Controls ─────────────────────────────────────────────────────────── -->
+<div class="d-flex flex-wrap gap-2 mb-4 align-items-center">
+  <button class="btn btn-outline-info" onclick="scanFolder()">
+    <i class="bi bi-search me-1"></i><span data-i18n="jobs.scan_btn">Analyser le dossier</span>
+  </button>
+  <button class="btn btn-success" id="btn-start" onclick="startJobs()" disabled>
+    <i class="bi bi-play-fill me-1"></i><span data-i18n="jobs.start_btn">Démarrer les uploads</span>
+  </button>
+  <button class="btn btn-outline-secondary" onclick="clearDoneJobs()">
+    <i class="bi bi-trash me-1"></i><span data-i18n="jobs.clear_btn">Supprimer les terminés</span>
+  </button>
+  <span class="text-muted small ms-auto" id="scan-summary"></span>
+</div>
+
+<!-- ── Preview table ─────────────────────────────────────────────────────── -->
+<div id="scan-preview" class="mb-4 d-none">
+  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
+    <h6 class="mb-0 text-secondary">
+      <i class="bi bi-list-check me-1"></i><span data-i18n="jobs.detected">Éléments détectés</span>
+    </h6>
+    <label class="form-check form-check-inline ms-auto mb-0 small text-muted">
+      <input class="form-check-input" type="checkbox" id="chk-show-history" onchange="toggleScanHistory(this)">
+      <span data-i18n="jobs.show_history">Afficher l'historique</span>
+    </label>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle" id="preview-table">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:2rem"><input type="checkbox" id="chk-all" onchange="toggleAll(this)"></th>
+          <th data-i18n="jobs.col.name">Nom</th>
+          <th data-i18n="jobs.col.type">Type</th>
+          <th data-i18n="jobs.col.tag">Tag</th>
+          <th data-i18n="jobs.col.seasons">Saisons</th>
+          <th data-i18n="jobs.col.status">Statut</th>
+        </tr>
+      </thead>
+      <tbody id="preview-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Console active (job en cours) — toujours en haut ─────────────────────── -->
+<div id="active-console-dock" class="mb-3 d-none">
+  <div class="card border-primary shadow-sm active-console-card">
+    <div class="card-header d-flex align-items-center gap-2 py-2 bg-primary bg-opacity-10">
+      <span class="spinner-border spinner-border-sm text-primary flex-shrink-0" id="active-console-spinner"></span>
+      <span class="badge bg-primary" data-i18n="jobs.active_console.badge">En cours</span>
+      <span id="active-console-title" class="job-name font-mono small text-truncate flex-grow-1"></span>
+      <span class="badge bg-info text-dark font-mono job-tmdb-badge d-none flex-shrink-0"
+            id="active-console-tmdb" data-i18n-title="jobs.tmdb.badge_title" title="TMDB mémorisé"></span>
+    </div>
+    <div class="terminal" id="active-console-terminal" style="max-height:min(50vh,420px)"></div>
+    <div class="input-row d-flex gap-2 p-2 border-top bg-body-secondary align-items-center">
+      <span class="input-group-text font-mono small px-2">›</span>
+      <input type="text" class="form-control form-control-sm font-mono" id="active-console-stdin"
+             data-i18n-placeholder="jobs.stdin_placeholder"
+             placeholder="Réponse (TMDB ID, y/n …)" autocomplete="off">
+      <button type="button" class="btn btn-sm btn-primary" id="active-console-send">
+        <i class="bi bi-send-fill"></i>
+      </button>
+    </div>
+  </div>
+</div>
+
+<!-- ── Jobs list ─────────────────────────────────────────────────────────── -->
+<div id="jobs-list"></div>
+<p id="jobs-empty" class="text-muted text-center mt-5 d-none">
+  <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+  <span data-i18n="jobs.empty">Aucun job en cours — lancez une analyse.</span>
+</p>
+
+{% endblock %}
+
+{% block scripts %}
+<!-- ── Job card template ──────────────────────────────────────────────────── -->
+<template id="tpl-job">
+  <div class="job-card card mb-3" data-job-id="">
+    <div class="card-header d-flex align-items-center gap-2 py-2">
+      <span class="job-spinner spinner-border spinner-border-sm text-primary d-none" style="flex-shrink:0"></span>
+      <span class="job-badge badge"></span>
+      <span class="job-type badge bg-secondary"></span>
+      <span class="job-name font-mono small text-truncate flex-grow-1"></span>
+      <span class="job-tag badge bg-dark border font-mono me-1"></span>
+      <button class="btn btn-sm btn-outline-danger job-cancel-btn" onclick="cancelJob(this)"
+              data-i18n-title="jobs.cancel_title" title="Annuler">
+        <i class="bi bi-x-lg"></i>
+      </button>
+    </div>
+    <div class="job-console-body d-none">
+      <div class="terminal"></div>
+      <div class="input-row d-flex gap-2 p-2 border-top bg-body-secondary align-items-center">
+        <span class="input-group-text font-mono small px-2">›</span>
+        <span class="badge bg-info text-dark font-mono job-tmdb-badge d-none flex-shrink-0"
+              data-i18n-title="jobs.tmdb.badge_title" title="TMDB mémorisé (ce terminal)"></span>
+        <input type="text" class="form-control form-control-sm font-mono job-stdin"
+               data-i18n-placeholder="jobs.stdin_placeholder"
+               placeholder="Réponse (TMDB ID, y/n …)" autocomplete="off">
+        <button class="btn btn-sm btn-primary job-send-btn" onclick="sendStdin(this)">
+          <i class="bi bi-send-fill"></i>
+        </button>
+      </div>
+    </div>
+  </div>
+</template>
+
+<script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+<script src="/static/js/dashboard.js"></script>
+{% endblock %}

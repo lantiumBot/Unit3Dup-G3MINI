@@ -1,0 +1,655 @@
+{% extends "base.html" %}
+{% block title %}Configuration{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
+  <h5 class="mb-0"><i class="bi bi-sliders me-2"></i><span data-i18n="config.title">Paramètres Unit3Dup</span></h5>
+  <button class="btn btn-primary" onclick="saveSettings()">
+    <i class="bi bi-floppy-fill me-1"></i><span data-i18n="config.save_btn">Sauvegarder tout</span>
+  </button>
+</div>
+
+<div class="accordion" id="acc">
+
+  <!-- ── Scan & Règles ─────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button" type="button" data-bs-toggle="collapse" data-bs-target="#s-scan">
+        <i class="bi bi-folder2-open me-2 text-info"></i><span data-i18n="config.section.scan">Scan &amp; Règles</span>
+      </button>
+    </h2>
+    <div id="s-scan" class="accordion-collapse collapse show">
+      <div class="accordion-body">
+        <div class="row g-3">
+          <div class="col-12">
+            <label class="form-label fw-semibold" data-i18n="config.scan.source_label">Dossier source</label>
+            <div class="input-group">
+              <span class="input-group-text"><i class="bi bi-folder"></i></span>
+              <input type="text" class="form-control font-mono" id="src-source_folder" placeholder="/mnt/Serie">
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card bg-body-secondary h-100">
+              <div class="card-header small fw-bold text-info">INTEGRALE</div>
+              <div class="card-body d-flex flex-column gap-2">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-integrale-enabled">
+                  <label class="form-check-label" for="rule-integrale-enabled" data-i18n="common.enabled">Activée</label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-integrale-seasons">
+                  <label class="form-check-label" for="rule-integrale-seasons" data-i18n="config.scan.upload_seasons">Uploader chaque sous-dossier saison</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card bg-body-secondary h-100">
+              <div class="card-header small fw-bold text-success">COMPLETE / Sxx</div>
+              <div class="card-body d-flex flex-column gap-2">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-season-enabled">
+                  <label class="form-check-label" for="rule-season-enabled" data-i18n="common.enabled">Activée</label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-season-require-tag">
+                  <label class="form-check-label" for="rule-season-require-tag" data-i18n="config.scan.require_tag">Exiger un tag valide</label>
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="src-confirm_mode">
+              <label class="form-check-label" for="src-confirm_mode" data-i18n="config.scan.confirm_mode">Mode <code>-confirm</code></label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="src-dry_run">
+              <label class="form-check-label" for="src-dry_run" data-i18n="config.scan.dry_run">Dry-run (simulation uniquement)</label>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" data-i18n="config.scan.dup_ask_label">Doublons — seuil skip (delta)</label>
+            <div class="input-group">
+              <input type="number" class="form-control" id="src-duplicate_ask_pct"
+                     min="0" max="100" step="0.1" value="0">
+              <span class="input-group-text">%</span>
+            </div>
+            <div class="form-text" data-i18n="config.scan.dup_ask_hint">
+              Si delta ≤ cette valeur → skip auto. Si delta supérieur (jusqu'à SIZE_TH) → demander confirmation.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" data-i18n="config.scan.dup_cache_ttl">Cache checks doublons (s)</label>
+            <input type="number" class="form-control" id="src-duplicate_cache_ttl_sec"
+                   min="0" step="1" value="0" placeholder="0">
+            <div class="form-text" data-i18n="config.scan.dup_cache_hint">
+              Durée de conservation des vérifications (fichier <code>duplicate_check_cache.json</code>).
+              <strong>0</strong> = rescan systématique sur le tracker, sans cache.
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tags ──────────────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-tags">
+        <i class="bi bi-tags-fill me-2 text-warning"></i><span data-i18n="config.section.tags">Tags de filtrage</span>
+      </button>
+    </h2>
+    <div id="s-tags" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <p class="text-muted small" data-i18n="config.tags.hint">Partie après le dernier <code>-</code> du nom de release (ex: <code>-FW</code>).</p>
+        <div id="tags-pills" class="mb-3 d-flex flex-wrap gap-2"></div>
+        <div class="input-group" style="max-width:300px">
+          <input type="text" class="form-control text-uppercase font-mono" id="new-tag-input"
+                 placeholder="FW, TyHD …" maxlength="30">
+          <button class="btn btn-outline-primary" onclick="addTag()">
+            <i class="bi bi-plus-lg"></i>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tracker ───────────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-tracker">
+        <i class="bi bi-broadcast me-2 text-primary"></i><span data-i18n="config.section.tracker">Tracker</span>
+      </button>
+    </h2>
+    <div id="s-tracker" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3">
+          <div class="col-md-8">
+            <label class="form-label">
+              <span data-i18n="config.tracker.gemini_url">URL Gemini</span>
+              <span class="text-danger ms-1" title="Obligatoire">*</span>
+            </label>
+            <input type="url" class="form-control font-mono" data-path="TRACKER_CONFIG.Gemini_URL" placeholder="https://…">
+            <div class="invalid-feedback" data-i18n="settings.validation.missing">Champ obligatoire</div>
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.tracker.multi">Trackers actifs</label>
+            <input type="text" class="form-control font-mono" data-path="TRACKER_CONFIG.MULTI_TRACKER_STR" placeholder="gemini">
+            <div class="form-text" data-i18n="config.tracker.multi_hint">Séparés par virgule</div>
+          </div>
+          {% for (lbl, i18n_key, field, required) in [
+            ("API Key (Gemini)",   "config.tracker.gemini_key",   "Gemini_APIKEY",   True),
+            ("PID / Passkey",      "config.tracker.gemini_pid",   "Gemini_PID",      True),
+            ("TMDB API Key",       "config.tracker.tmdb_key",     "TMDB_APIKEY",     True),
+            ("YouTube API Key",    "config.tracker.youtube_key",  "YOUTUBE_KEY",     False),
+            ("IGDB Client ID",     "config.tracker.igdb_id",      "IGDB_CLIENT_ID",  False),
+            ("IGDB Client Secret", "config.tracker.igdb_secret",  "IGDB_ID_SECRET",  False),
+          ] %}
+          <div class="col-md-6">
+            <label class="form-label">
+              <span data-i18n="{{ i18n_key }}">{{ lbl }}</span>
+              {% if required %}<span class="text-danger ms-1" title="Obligatoire">*</span>{% endif %}
+            </label>
+            <div class="input-group">
+              <input type="password" class="form-control font-mono" data-path="TRACKER_CONFIG.{{ field }}" autocomplete="off">
+              <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+            {% if required %}<div class="invalid-feedback" data-i18n="settings.validation.missing">Champ obligatoire</div>{% endif %}
+          </div>
+          {% endfor %}
+        </div>
+
+        <hr class="my-3">
+        <p class="small fw-semibold text-muted" data-i18n="config.tracker.images_title">Clés hébergement d'images</p>
+        <div class="row g-3">
+          {% for (lbl, field) in [
+            ("ImgBB","IMGBB_KEY"),("FreeImage","FREE_IMAGE_KEY"),("LensDump","LENSDUMP_KEY"),
+            ("PTScreens","PTSCREENS_KEY"),("ImgFi","IMGFI_KEY"),("PassIMA","PASSIMA_KEY"),("ImaRide","IMARIDE_KEY"),
+          ] %}
+          <div class="col-md-4">
+            <label class="form-label">{{ lbl }}</label>
+            <div class="input-group">
+              <input type="password" class="form-control form-control-sm font-mono" data-path="TRACKER_CONFIG.{{ field }}" autocomplete="off">
+              <button class="btn btn-sm btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Client Torrent ────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-client">
+        <i class="bi bi-hdd-network me-2 text-success"></i><span data-i18n="config.section.client">Client Torrent</span>
+      </button>
+    </h2>
+    <div id="s-client" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.client.selector_label">Client actif</label>
+            <select class="form-select" data-path="TORRENT_CLIENT_CONFIG.TORRENT_CLIENT" id="client-selector">
+              <option value="qbittorrent">qBittorrent</option>
+              <option value="transmission">Transmission</option>
+              <option value="rtorrent">rTorrent</option>
+            </select>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" data-i18n="config.client.tag_label">Tag ajouté aux torrents</label>
+            <input type="text" class="form-control font-mono" data-path="TORRENT_CLIENT_CONFIG.TAG" placeholder="ADDED TORRENTS">
+          </div>
+        </div>
+
+        {% for (cid, clabel, client_val, fields) in [
+          ("client-qbit", "qBittorrent", "qbittorrent", [
+            ("Host",        "config.client.host",        "QBIT_HOST","text","10.0.0.1",    True),
+            ("Port",        "config.client.port",        "QBIT_PORT","number","8080",      True),
+            ("User",        "config.client.user",        "QBIT_USER","text","admin",       True),
+            ("Password",    "config.client.password",    "QBIT_PASS","password","",        True),
+            ("Shared path", "config.client.shared_path", "SHARED_QBIT_PATH","text","/data/media", False),
+          ]),
+          ("client-trasm", "Transmission", "transmission", [
+            ("Host",        "config.client.host",        "TRASM_HOST","text","127.0.0.1",  True),
+            ("Port",        "config.client.port",        "TRASM_PORT","number","9091",     True),
+            ("User",        "config.client.user",        "TRASM_USER","text","admin",      True),
+            ("Password",    "config.client.password",    "TRASM_PASS","password","",       True),
+            ("Shared path", "config.client.shared_path", "SHARED_TRASM_PATH","text","/data/media", False),
+          ]),
+          ("client-rtorr", "rTorrent", "rtorrent", [
+            ("Host",        "config.client.host",        "RTORR_HOST","text","127.0.0.1",  True),
+            ("Port",        "config.client.port",        "RTORR_PORT","number","5000",     True),
+            ("User",        "config.client.user",        "RTORR_USER","text","admin",      True),
+            ("Password",    "config.client.password",    "RTORR_PASS","password","",       True),
+            ("Shared path", "config.client.shared_path", "SHARED_RTORR_PATH","text","/data/media", False),
+          ]),
+        ] %}
+        <div id="{{ cid }}" class="client-panel border rounded p-3 mb-2 {% if not loop.first %}d-none{% endif %}">
+          <p class="small text-muted fw-bold mb-2">{{ clabel }}</p>
+          <div class="row g-2 align-items-end">
+            {% for (flbl, fi18n, fname, ftype, fph, freq) in fields %}
+            <div class="col-md-{% if 'path' in flbl.lower() %}12{% elif ftype=='number' %}2{% else %}3{% endif %}">
+              <label class="form-label form-label-sm">
+                <span data-i18n="{{ fi18n }}">{{ flbl }}</span>
+                {% if freq %}<span class="text-danger ms-1" title="Obligatoire">*</span>{% endif %}
+              </label>
+              {% if ftype == 'password' %}
+              <div class="input-group input-group-sm">
+                <input type="password" class="form-control font-mono" data-path="TORRENT_CLIENT_CONFIG.{{ fname }}" autocomplete="off">
+                <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+              </div>
+              {% else %}
+              <input type="{{ ftype }}" class="form-control form-control-sm font-mono"
+                     data-path="TORRENT_CLIENT_CONFIG.{{ fname }}" placeholder="{{ fph }}">
+              {% endif %}
+              {% if freq %}<div class="invalid-feedback" data-i18n="settings.validation.missing">Champ obligatoire</div>{% endif %}
+            </div>
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Préférences ───────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-prefs">
+        <i class="bi bi-toggles me-2 text-secondary"></i><span data-i18n="config.section.prefs">Préférences</span>
+      </button>
+    </h2>
+    <div id="s-prefs" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.prefs.screenshots">Screenshots</label>
+            <input type="number" class="form-control" data-path="USER_PREFERENCES.NUMBER_OF_SCREENSHOTS" min="1" max="10">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.prefs.compress">Compression (0–10)</label>
+            <input type="number" class="form-control" data-path="USER_PREFERENCES.COMPRESS_SCSHOT" min="0" max="10">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.prefs.size_th">Taille min. (Mo)</label>
+            <input type="number" class="form-control" data-path="USER_PREFERENCES.SIZE_TH" min="0">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.prefs.lang">Langue préférée</label>
+            <input type="text" class="form-control" data-path="USER_PREFERENCES.PREFERRED_LANG" placeholder="all">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.prefs.fast_load">Fast Load (0–10)</label>
+            <input type="number" class="form-control" data-path="USER_PREFERENCES.FAST_LOAD" min="0" max="10">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.prefs.comment">Commentaire torrent</label>
+            <input type="text" class="form-control" data-path="USER_PREFERENCES.TORRENT_COMMENT" placeholder="no_comment">
+          </div>
+          <div class="col-md-9">
+            <label class="form-label" data-i18n="config.prefs.youtube_channel_id">ID Chaîne YouTube</label>
+            <input type="text" class="form-control font-mono" data-path="USER_PREFERENCES.YOUTUBE_FAV_CHANNEL_ID" placeholder="UCGCbxpnt25hWPFLSbvwfg_w">
+          </div>
+
+          {% for (field, lbl, i18n_key) in [
+            ("DUPLICATE_ON",          "Détection doublons",    "config.prefs.duplicate"),
+            ("SKIP_DUPLICATE",        "Ignorer si doublon",    "config.prefs.skip_dup"),
+            ("SKIP_TMDB",             "Ignorer TMDB",          "config.prefs.skip_tmdb"),
+            ("SKIP_YOUTUBE",          "Ignorer YouTube",       "config.prefs.skip_youtube"),
+            ("SKIP_SCREENSHOTS",      "Ignorer screenshots",   "config.prefs.skip_screenshots"),
+            ("PERSONAL_RELEASE",      "Release perso",         "config.prefs.personal"),
+            ("ANON",                  "Anonyme",               "config.prefs.anon"),
+            ("RESIZE_SCSHOT",         "Redim. screenshots",    "config.prefs.resize"),
+            ("WEBP_ENABLED",          "Format WebP",           "config.prefs.webp"),
+            ("YOUTUBE_CHANNEL_ENABLE","YouTube channel",       "config.prefs.youtube_ch"),
+            ("CACHE_SCR",             "Cache screenshots",     "config.prefs.cache_scr"),
+            ("CACHE_DBONLINE",        "Cache DB online",       "config.prefs.cache_db"),
+          ] %}
+          <div class="col-md-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" data-path="USER_PREFERENCES.{{ field }}" id="p{{ loop.index }}">
+              <label class="form-check-label" for="p{{ loop.index }}" data-i18n="{{ i18n_key }}">{{ lbl }}</label>
+            </div>
+          </div>
+          {% endfor %}
+        </div>
+
+        <!-- Image hosting priority -->
+        <hr class="my-3">
+        <p class="small fw-semibold text-muted" data-i18n="config.prefs.img_priority_title">Priorité hébergement d'images (0 = premier)</p>
+        <div class="row g-2">
+          {% for (lbl, field) in [
+            ("PTScreens","PTSCREENS_PRIORITY"),("LensDump","LENSDUMP_PRIORITY"),
+            ("FreeImage","FREE_IMAGE_PRIORITY"),("ImgBB","IMGBB_PRIORITY"),
+            ("ImgFi","IMGFI_PRIORITY"),("PassIMA","PASSIMA_PRIORITY"),("ImaRide","IMARIDE_PRIORITY"),
+          ] %}
+          <div class="col-6 col-md-3 col-lg-2">
+            <label class="form-label form-label-sm">{{ lbl }}</label>
+            <input type="number" class="form-control form-control-sm font-mono"
+                   data-path="USER_PREFERENCES.{{ field }}" min="0" max="9">
+          </div>
+          {% endfor %}
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Watcher & Chemins ─────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-watcher">
+        <i class="bi bi-eye me-2 text-info"></i><span data-i18n="config.section.watcher">Watcher &amp; Chemins</span>
+      </button>
+    </h2>
+    <div id="s-watcher" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3">
+          <div class="col-md-2">
+            <label class="form-label" data-i18n="config.watcher.interval">Intervalle (s)</label>
+            <input type="number" class="form-control font-mono" data-path="USER_PREFERENCES.WATCHER_INTERVAL" min="10" placeholder="60">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label" data-i18n="config.watcher.path">Dossier surveillé</label>
+            <input type="text" class="form-control font-mono" data-path="USER_PREFERENCES.WATCHER_PATH" placeholder="~/Unit3Dup_config/watcher_path">
+          </div>
+          <div class="col-md-5">
+            <label class="form-label" data-i18n="config.watcher.dest">Dossier destination</label>
+            <input type="text" class="form-control font-mono" data-path="USER_PREFERENCES.WATCHER_DESTINATION_PATH" placeholder="~/Unit3Dup_config/watcher_destination_path">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.watcher.archive">Archive .torrent</label>
+            <input type="text" class="form-control font-mono" data-path="USER_PREFERENCES.TORRENT_ARCHIVE_PATH" placeholder="~/Unit3Dup_config/torrent_archive_path">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.watcher.cache">Cache DB</label>
+            <input type="text" class="form-control font-mono" data-path="USER_PREFERENCES.CACHE_PATH" placeholder="~/Unit3Dup_config/cache_path">
+          </div>
+        </div>
+
+        <hr class="my-3">
+        <div class="d-flex flex-wrap gap-2 align-items-center mb-3">
+          <button type="button" class="btn btn-success btn-sm" id="watcher-btn-start" onclick="startWatcher()">
+            <i class="bi bi-play-fill me-1"></i><span data-i18n="config.watcher.start">Démarrer le watcher</span>
+          </button>
+          <button type="button" class="btn btn-outline-danger btn-sm" id="watcher-btn-stop" onclick="stopWatcher()" disabled>
+            <i class="bi bi-stop-fill me-1"></i><span data-i18n="config.watcher.stop">Arrêter</span>
+          </button>
+          <span id="watcher-phase-badge" class="badge bg-secondary font-mono">—</span>
+          <span class="text-muted small ms-auto" id="watcher-queue-summary"></span>
+        </div>
+
+        <div class="row g-3">
+          <div class="col-lg-5">
+            <label class="form-label small fw-semibold text-muted" data-i18n="config.watcher.state_title">État (JSON)</label>
+            <pre id="watcher-state-json" class="terminal font-mono small mb-0"
+                 style="min-height:140px;max-height:280px;white-space:pre-wrap">{}</pre>
+          </div>
+          <div class="col-lg-7">
+            <label class="form-label small fw-semibold text-muted" data-i18n="config.watcher.console_title">Console live</label>
+            <div id="watcher-console" class="terminal font-mono small mb-2"
+                 style="min-height:140px;max-height:280px"></div>
+            <div class="input-group input-group-sm">
+              <span class="input-group-text font-mono">›</span>
+              <input type="text" class="form-control font-mono" id="watcher-stdin"
+                     data-i18n-placeholder="config.watcher.stdin_placeholder"
+                     placeholder="Réponse interactive (TMDB, y/n…)" autocomplete="off">
+              <button type="button" class="btn btn-primary" onclick="sendWatcherStdin()">
+                <i class="bi bi-send-fill"></i>
+              </button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Tags d'équipe (UPLOADER_TAG) ──────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-team">
+        <i class="bi bi-person-badge me-2 text-warning"></i><span data-i18n="config.section.team">Tags d'équipe (personal_release)</span>
+      </button>
+    </h2>
+    <div id="s-team" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <p class="text-muted small" data-i18n="config.team.hint">Si la release se termine par un de ces tags, <code>personal_release</code> est activé automatiquement.</p>
+        <div id="team-tags-pills" class="mb-3 d-flex flex-wrap gap-2"></div>
+        <div class="input-group mb-3" style="max-width:300px">
+          <input type="text" class="form-control text-uppercase font-mono" id="new-team-tag-input"
+                 placeholder="MONTEAM" maxlength="30">
+          <button class="btn btn-outline-warning" onclick="addTeamTag()"><i class="bi bi-plus-lg"></i></button>
+        </div>
+        <div class="row g-3">
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.team.pid">PID alternatif (releases non-KFL)</label>
+            <div class="input-group">
+              <input type="password" class="form-control font-mono" data-path="UPLOADER_TAG.PID_OTHER" autocomplete="off">
+              <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.team.apikey">API Key alternatif</label>
+            <div class="input-group">
+              <input type="password" class="form-control font-mono" data-path="UPLOADER_TAG.APIKEY_OTHER" autocomplete="off">
+              <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Prowlarr & FTP (Options) ──────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-options">
+        <i class="bi bi-plug me-2 text-secondary"></i><span data-i18n="config.section.options">Prowlarr &amp; FTP</span>
+      </button>
+    </h2>
+    <div id="s-options" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <p class="small fw-semibold text-muted" data-i18n="config.options.prowlarr_title">Prowlarr</p>
+        <div class="row g-3 mb-3">
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.options.pw_key">API Key</label>
+            <div class="input-group">
+              <input type="password" class="form-control font-mono" data-path="OPTIONS.PW_API_KEY" autocomplete="off">
+              <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-8">
+            <label class="form-label" data-i18n="config.options.pw_url">URL</label>
+            <input type="url" class="form-control font-mono" data-path="OPTIONS.PW_URL" placeholder="http://localhost:9696/api/v1">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.options.pw_archive">Archive torrents Prowlarr</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.PW_TORRENT_ARCHIVE_PATH">
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.options.pw_download">Dossier download Prowlarr</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.PW_DOWNLOAD_PATH">
+          </div>
+        </div>
+        <hr class="my-3">
+        <p class="small fw-semibold text-muted" data-i18n="config.options.ftp_title">FTP</p>
+        <div class="row g-3">
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.options.ftp_ip">Adresse IP</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.FTPX_IP" placeholder="127.0.0.1">
+          </div>
+          <div class="col-md-2">
+            <label class="form-label" data-i18n="config.options.ftp_port">Port</label>
+            <input type="number" class="form-control font-mono" data-path="OPTIONS.FTPX_PORT" placeholder="2121">
+          </div>
+          <div class="col-md-3">
+            <label class="form-label" data-i18n="config.options.ftp_user">User</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.FTPX_USER" placeholder="user">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.options.ftp_pass">Password</label>
+            <div class="input-group">
+              <input type="password" class="form-control font-mono" data-path="OPTIONS.FTPX_PASS" autocomplete="off">
+              <button class="btn btn-outline-secondary toggle-pass" type="button"><i class="bi bi-eye"></i></button>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label" data-i18n="config.options.ftp_local">Chemin local</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.FTPX_LOCAL_PATH">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.options.ftp_root">Racine FTP</label>
+            <input type="text" class="form-control font-mono" data-path="OPTIONS.FTPX_ROOT" placeholder=".">
+          </div>
+          <div class="col-md-2 d-flex align-items-end">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" data-path="OPTIONS.FTPX_KEEP_ALIVE" id="ftp-ka">
+              <label class="form-check-label" for="ftp-ka" data-i18n="config.options.ftp_keepalive">Keep-Alive</label>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Console ───────────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-console">
+        <i class="bi bi-terminal me-2 text-secondary"></i><span data-i18n="config.section.console">Console (couleurs &amp; messages)</span>
+      </button>
+    </h2>
+    <div id="s-console" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3">
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.normal_color">Couleur normale</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.NORMAL_COLOR" placeholder="blue bold">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.error_color">Couleur erreur</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.ERROR_COLOR" placeholder="red bold">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.welcome">Message accueil</label>
+            <input type="text" class="form-control" data-path="CONSOLE_OPTIONS.WELCOME_MESSAGE" placeholder="G3MINI TR4CK3R">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.welcome_color">Couleur message accueil</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.WELCOME_MESSAGE_COLOR" placeholder="blue">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.welcome_border">Bordure accueil</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.WELCOME_MESSAGE_BORDER_COLOR" placeholder="yellow">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.panel_color">Couleur panel</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.PANEL_MESSAGE_COLOR" placeholder="blue">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.panel_border">Bordure panel</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.PANEL_MESSAGE_BORDER_COLOR" placeholder="yellow">
+          </div>
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.console.question_color">Couleur question</label>
+            <input type="text" class="form-control font-mono" data-path="CONSOLE_OPTIONS.QUESTION_MESSAGE_COLOR" placeholder="yellow">
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Gestion automatique ──────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-automanage">
+        <i class="bi bi-robot me-2 text-danger"></i><span data-i18n="config.section.automanage">Gestion automatique (AutoManager)</span>
+      </button>
+    </h2>
+    <div id="s-automanage" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3 mb-3 align-items-end">
+          <div class="col-md-3">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="am-enabled">
+              <label class="form-check-label fw-bold" for="am-enabled" data-i18n="config.am.master_label">Activer AutoManager</label>
+            </div>
+          </div>
+          <div class="col-md-3">
+            <label class="form-label form-label-sm" data-i18n="config.am.interval">Intervalle (minutes)</label>
+            <input type="number" class="form-control" id="am-interval" min="5" max="1440" placeholder="60">
+          </div>
+          <div class="col-md-3">
+            <button class="btn btn-outline-warning w-100" onclick="runAutoManage()">
+              <i class="bi bi-play-circle me-1"></i><span data-i18n="config.am.run_now">Exécuter maintenant</span>
+            </button>
+          </div>
+        </div>
+        <div class="row g-3 mb-3">
+          <div class="col-md-6">
+            <div class="card bg-body-secondary h-100">
+              <div class="card-header small fw-bold text-danger">
+                <i class="bi bi-pause-circle me-1"></i><span data-i18n="config.am.remove.title">Suppression auto (pause qBit)</span>
+              </div>
+              <div class="card-body d-flex flex-column gap-3">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="am-remove-enabled">
+                  <label class="form-check-label" for="am-remove-enabled" data-i18n="common.enabled">Activée</label>
+                </div>
+                <div>
+                  <label class="form-label form-label-sm" data-i18n="config.am.remove.after_days">Mettre en pause après X jours de seeding</label>
+                  <input type="number" class="form-control" id="am-remove-days" min="1" placeholder="30">
+                </div>
+                <div>
+                  <label class="form-label form-label-sm" data-i18n="config.am.remove.min_seeders">Condition : seeders dans le swarm ≥</label>
+                  <input type="number" class="form-control" id="am-remove-seeders" min="1" placeholder="5">
+                </div>
+              </div>
+            </div>
+          </div>
+          <div class="col-md-6">
+            <div class="card bg-body-secondary h-100">
+              <div class="card-header small fw-bold text-success">
+                <i class="bi bi-arrow-repeat me-1"></i><span data-i18n="config.am.reseed.title">Reseed auto (reprise qBit)</span>
+              </div>
+              <div class="card-body d-flex flex-column gap-3">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="am-reseed-enabled">
+                  <label class="form-check-label" for="am-reseed-enabled" data-i18n="common.enabled">Activée</label>
+                </div>
+                <div>
+                  <label class="form-label form-label-sm" data-i18n="config.am.reseed.below">Reprendre si seeders dans le swarm &lt;</label>
+                  <input type="number" class="form-control" id="am-reseed-seeders" min="1" placeholder="2">
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="am-gemini-scan">
+                  <label class="form-check-label" for="am-gemini-scan" data-i18n="config.am.reseed.gemini">Scan Gemini (reprendre si release dead)</label>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="d-flex justify-content-between align-items-center mb-1">
+          <span class="small fw-semibold text-muted">
+            <i class="bi bi-journal-text me-1"></i><span data-i18n="config.am.log.title">Journal AutoManager</span>
+          </span>
+          <button class="btn btn-xs btn-outline-secondary" onclick="loadAutoManageLog()">
+            <i class="bi bi-arrow-clockwise"></i>
+          </button>
+        </div>
+        <div id="am-log" class="terminal" style="min-height:80px;max-height:220px">(aucun journal)</div>
+      </div>
+    </div>
+  </div>
+
+</div><!-- /accordion -->
+{% endblock %}
+
+{% block scripts %}
+<script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+<script src="/static/js/settings.js"></script>
+{% endblock %}
