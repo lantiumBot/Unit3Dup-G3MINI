@@ -37,14 +37,16 @@ class Video:
         self.key = f"{self.tmdb_id}.{self.display_name}"
         self.cache_key = self.hash_key(self.key)
 
-        # Load the video frames
-        # if web_enabled is off set the number of screenshots to an even number
-        if not config_settings.user_preferences.WEBP_ENABLED:
-            if config_settings.user_preferences.NUMBER_OF_SCREENSHOTS % 2 != 0:
-                config_settings.user_preferences.NUMBER_OF_SCREENSHOTS += 1
+        # Load the video frames (sauf si screenshots désactivés)
+        self.video_frames: VideoFrame | None = None
+        if not config_settings.user_preferences.SKIP_SCREENSHOTS:
+            # if web_enabled is off set the number of screenshots to an even number
+            if not config_settings.user_preferences.WEBP_ENABLED:
+                if config_settings.user_preferences.NUMBER_OF_SCREENSHOTS % 2 != 0:
+                    config_settings.user_preferences.NUMBER_OF_SCREENSHOTS += 1
 
-        samples_n = max(2, min(config_settings.user_preferences.NUMBER_OF_SCREENSHOTS, 10))
-        self.video_frames: VideoFrame = VideoFrame(self.file_name, num_screenshots=samples_n)
+            samples_n = max(2, min(config_settings.user_preferences.NUMBER_OF_SCREENSHOTS, 10))
+            self.video_frames = VideoFrame(self.file_name, num_screenshots=samples_n)
 
         # Init
         self.is_hd: int = 0
@@ -85,6 +87,16 @@ class Video:
             custom_console.bot_warning_log(f"[NFO] Erreur lors de la génération du NFO: {e}")
             return False
 
+    def _apply_tmdb_trailer_description(self) -> None:
+        """TMDB (fr-FR → en-US → sans langue) : [youtube] ou « . » si aucune vidéo."""
+        if _is_valid_youtube_trailer_key(self.trailer_key):
+            self.description += (
+                f"[b][spoiler=Spoiler: PLAY TRAILER][center][youtube]{self.trailer_key}[/youtube]"
+                f"[/center][/spoiler][/b]"
+            )
+        else:
+            self.description = "."
+
     def build_info(self):
         """Build the information to send to the tracker"""
 
@@ -92,12 +104,24 @@ class Video:
         media_info = MediaFile(self.file_name)
         self.mediainfo = media_info.info
 
+        if config_settings.user_preferences.SKIP_SCREENSHOTS:
+            custom_console.bot_log("\n[SCREENSHOTS] Ignorés (SKIP_SCREENSHOTS activé)")
+            self.description = ""
+            self._apply_tmdb_trailer_description()
+            return
+
         if config_settings.user_preferences.CACHE_SCR:
             description = self.cache.get(self.cache_key)
             if description:
                 custom_console.bot_warning_log(f"\n<> Using cached images for '{self.key}'")
-                self.description = description.get('description', '')
                 self.is_hd = description.get('is_hd', 0)
+                if not _is_valid_youtube_trailer_key(self.trailer_key):
+                    self.description = "."
+                    return
+                cached_desc = description.get('description', '')
+                if cached_desc:
+                    self.description = cached_desc
+                    return
 
         if not self.description:
             # If no description found generate it
@@ -118,12 +142,7 @@ class Video:
             # Build the description
             build_description = Build(extracted_frames=extracted_frames_webp + extracted_frames, filename=self.display_name)
             self.description = build_description.description()
-
-            if _is_valid_youtube_trailer_key(self.trailer_key):
-                self.description += (
-                    f"[b][spoiler=Spoiler: PLAY TRAILER][center][youtube]{self.trailer_key}[/youtube]"
-                    f"[/center][/spoiler][/b]"
-                )
+            self._apply_tmdb_trailer_description()
             self.is_hd = is_hd
 
         # Caching

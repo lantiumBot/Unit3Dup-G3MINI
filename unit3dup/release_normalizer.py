@@ -14,6 +14,24 @@ from typing import Optional
 #  HELPERS
 # ══════════════════════════════════════════════════════════════════════════════
 
+def _extract_french_en_lang(name: str) -> tuple[str, str]:
+    """FRENCH/VFF + EN/ENG → VFF.VO ; retire EN du nom."""
+    has_en = bool(re.search(r'(?:^|\s)(?:ENG|EN)(?:\s|$)', name, re.IGNORECASE))
+    if not has_en:
+        return name, ""
+    if re.search(r'(?:^|\s)FRENCH(?:\s|$)', name, re.IGNORECASE):
+        name = _remove_token(name, "FRENCH")
+        name = _remove_token(name, "ENG")
+        name = _remove_token(name, "EN")
+        return _ws(name), "VFF.VO"
+    if re.search(r'(?:^|\s)VFF(?:\s|$)', name, re.IGNORECASE):
+        name = _remove_token(name, "VFF")
+        name = _remove_token(name, "ENG")
+        name = _remove_token(name, "EN")
+        return _ws(name), "VFF.VO"
+    return name, ""
+
+
 def _normalize_lang(raw: str) -> str:
     r = raw.upper()
     if r == "TRUEFRENCH":                   return "VFF"
@@ -237,6 +255,12 @@ _AUDIO_RANK: dict[str, int] = {
     "AAC2.0": 20,
     "AAC5.1": 25,
     "AC3": 30,
+    "AC32.0": 35,
+    "AC35.1": 38,
+    "DD": 28,
+    "DD2.0": 35,
+    "DD5.1": 38,
+    "DD7.1": 45,
     "DDP": 40,
     "DDP2.0": 50,
     "DDP5.1": 60,
@@ -271,6 +295,69 @@ def _pick_best_audio(tags: list[str]) -> str:
     if not tags:
         return ""
     return max(tags, key=_audio_rank)
+
+
+def _audio_has_channel_suffix(tag: str) -> bool:
+    if not tag:
+        return False
+    return bool(re.search(
+        r'(?:DDP|DD|AC3|AAC)(?:2\.0|5\.1|7\.1)$|\.(?:2\.0|5\.1|7\.1)$',
+        tag,
+        re.IGNORECASE,
+    ))
+
+
+def _audio_codec_family(tag: str) -> str:
+    t = tag.upper()
+    if t.startswith("DDP"):
+        return "DDP"
+    if t.startswith("DD"):
+        return "DD"
+    if t.startswith("AC3"):
+        return "AC3"
+    if t.startswith("AAC"):
+        return "AAC"
+    return tag.split(".", 1)[0].upper()
+
+
+def _append_channel_to_audio_tag(tag: str, channel: str) -> str:
+    return f"{tag}{channel}"
+
+
+def _resolve_audio_channel_tag(audio: str, mi: Optional[str]) -> str:
+    """Ajoute 2.0/5.1/7.1 à DD/DDP/AC3/AAC nu via MediaInfo."""
+    if not audio or not mi or _audio_has_channel_suffix(audio):
+        return audio
+    family = _audio_codec_family(audio)
+    for tag in _get_audio_tags_from_mediainfo(mi):
+        if not _audio_has_channel_suffix(tag):
+            continue
+        tf = _audio_codec_family(tag)
+        if tf != family and not (family == "AC3" and tf == "DD"):
+            continue
+        ch_m = re.search(r'(2\.0|5\.1|7\.1)', tag)
+        if ch_m:
+            base = "AC3" if family == "AC3" else family
+            return _append_channel_to_audio_tag(base, ch_m.group(1))
+    return audio
+
+
+def _attach_orphan_channels_to_audio_tags(found: list[str], name: str) -> str:
+    """Associe un 2.0/5.1/7.1 orphelin au dernier tag DD/DDP/AC3/AAC sans canaux."""
+    channel_bases = frozenset({"DDP", "DD", "AC3", "AAC"})
+    mo = re.search(r'(?:^|\s)(2\.0|5\.1|7\.1)(?:\s|$)', name)
+    if not mo:
+        return name
+    ch = mo.group(1)
+    for i in range(len(found) - 1, -1, -1):
+        if found[i] not in channel_bases:
+            continue
+        if _audio_has_channel_suffix(found[i]):
+            continue
+        found[i] = _append_channel_to_audio_tag(found[i], ch)
+        name = re.sub(rf'(?:^|\s){re.escape(ch)}(?:\s|$)', ' ', name)
+        return _ws(name)
+    return name
 
 
 def _channel_audio_suffix(ch: int) -> str:
@@ -321,7 +408,7 @@ def _audio_tag_from_mediainfo_block(block: str) -> str:
     if re.search(r'E-AC-3|EAC3|DD\+|ENHANCED AC-3', blob):
         return f"DDP{ch_s}" if ch_s else "DDP"
     if re.search(r'AC-3|AC3|DOLBY DIGITAL', blob):
-        return "AC3"
+        return f"DD{ch_s}" if ch_s else "DD"
     if re.search(r'\bAAC\b', fmt, re.IGNORECASE):
         return f"AAC{ch_s}" if ch_s else "AAC"
     return ""
@@ -401,9 +488,27 @@ def _collect_audio_tags_from_name(name: str) -> tuple[str, list[str]]:
             name = re.sub(pat, ' ', name, flags=re.IGNORECASE)
             name = _ws(name)
 
-    if re.search(r'(?:^|\s)AC3[-. ][0-9]', name, re.IGNORECASE):
-        found.append("AC3")
-        name = re.sub(r'(?:^|\s)AC3[-. ][0-9](?:[. ][0-9])?(?:\s|$)', ' ', name, flags=re.IGNORECASE)
+    for pat, tag in (
+        (r'(?:^|\s)DD(?!P)\s*7\.1(?:\s|$)', "DD7.1"),
+        (r'(?:^|\s)DD(?!P)\s*5\.1(?:\s|$)', "DD5.1"),
+        (r'(?:^|\s)DD(?!P)\s*2\.0(?:\s|$)', "DD2.0"),
+        (r'(?:^|\s)DD(?!P)(?:\s|$)', "DD"),
+    ):
+        if re.search(pat, name, re.IGNORECASE):
+            found.append(tag)
+            name = re.sub(pat, ' ', name, flags=re.IGNORECASE)
+            name = _ws(name)
+
+    m = re.search(r'(?:^|\s)AC3[-. ]?(2\.0|5\.1|7\.1)(?:\s|$)', name, re.IGNORECASE)
+    if m:
+        found.append(_append_channel_to_audio_tag("AC3", m.group(1)))
+        name = re.sub(
+            r'(?:^|\s)AC3[-. ]?' + re.escape(m.group(1)) + r'(?:\s|$)',
+            ' ',
+            name,
+            flags=re.IGNORECASE,
+        )
+        name = _ws(name)
     elif re.search(r'(?:^|\s)AC3(?:\s|$)', name, re.IGNORECASE):
         found.append("AC3")
         name = _remove_token(name, "AC3")
@@ -418,6 +523,7 @@ def _collect_audio_tags_from_name(name: str) -> tuple[str, list[str]]:
             name = re.sub(pat, ' ', name, flags=re.IGNORECASE)
             name = _ws(name)
 
+    name = _attach_orphan_channels_to_audio_tags(found, name)
     name = re.sub(r'(?:^|\s)[0-9][.][0-9](?:\s|$)', ' ', name)
     return _ws(name), found
 
@@ -432,8 +538,9 @@ _TAGS = (
     r'BluRay|BDRip|WEBRip|WEB|4KLight|HDLight|HDRip|TVRip|DVDRip|HDTV|REMUX|CAM'
     r'|2160p|1080p|1080i|720p|576p|480p|4K|UHD'
     r'|HDR10P|HDR10|SDR|DV|HLG|PQ10|HDR'
+    r'|HMAX'
     r'|x265|x264|H265|H264|HEVC|AVC|AV1|VP9|VC1'
-    r'|DTS-HDMA|DTS-HD|DTS|AC3|DDP|TrueHD|Atmos|AAC'
+    r'|DTS-HDMA|DTS-HD|DTS|AC3|DDP|DD|TrueHD|Atmos|AAC'
     r'|MULTi|VFF|VFQ|VF2|VFB|VOSTFR|SUBFRENCH|VOF|VOQ|VOB|FRENCH'
     r'|EXTENDED|PROPER|REPACK|UNRATED|UNCUT|REMASTERED|INTERNAL|NoTAG|iNTEGRALE'
     r'|8bit|10bit|12bit'
@@ -506,14 +613,15 @@ _NON_TEAM_SUFFIXES = {
     # Extensions / contenants
     "MKV", "MP4", "AVI", "M2TS", "TS", "ISO",
     # Resolution / video tags
-    "2160P", "1080P", "1080I", "720P", "576P", "480P", "4K", "UHD",
+    "2160P", "1080P", "1080I", "720P", "576P", "480P", "4K", "UHD", "HMAX",
     "X264", "X265", "H264", "H265", "AVC", "HEVC", "AV1", "VP9", "VC1", "MPEG2",
     # Sources
     "WEB", "WEBRIP", "WEBDL", "BLURAY", "BDRIP", "HDRIP", "HDTV", "TVRIP", "DVDRIP", "REMUX",
     # Langues
     "FRENCH", "MULTI", "MULTIC", "VFF", "VFQ", "VF2", "VFB", "VOSTFR", "SUBFRENCH", "VOF", "VOQ", "VOB",
+    "EN", "ENG",
     # Audio
-    "DTS", "DTSHD", "DTSHDMA", "AC3", "DDP", "TRUEHD", "ATMOS", "AAC",
+    "DTS", "DTSHD", "DTSHDMA", "AC3", "DD", "DDP", "TRUEHD", "ATMOS", "AAC",
     # HDR / extras courants
     "HDR", "HDR10", "HDR10P", "DV", "HLG", "SDR", "NOTAG",
 }
@@ -610,6 +718,8 @@ def _parse_release(
                   r'\1MULTi.VFF\2',                                     name, flags=re.IGNORECASE)
     # FR seul → FRENCH
     name = re.sub(r'(^|\s)FR(\s|$)',                        r'\1FRENCH\2', name, flags=re.IGNORECASE)
+    # FRENCH.EN / FRENCH-EN (avant séparation 5b) → FRENCH EN
+    name = re.sub(r'(?:^|\s)FRENCH[.\s_-]+EN(?:\s|$)',      r' FRENCH EN ', name, flags=re.IGNORECASE)
     name = _ws(name)
 
     # ── 5b. Séparation des tokens collés (boucle jusqu'à stabilité) ───────────
@@ -697,7 +807,12 @@ def _parse_release(
     lang = ""
     lang_compound = False
     lang_from_french = False  # True si le token source était "FRENCH" (pas VFF/VFI explicite)
+    name, lang_french_en = _extract_french_en_lang(name)
+    if lang_french_en:
+        lang = lang_french_en
     for p in _LANG_PATTERNS:
+        if lang:
+            break
         m = re.search(r'(?:^|\s)(' + p + r')(?:\s|$)', name, re.IGNORECASE)
         if m:
             matched = m.group(1)
@@ -748,6 +863,12 @@ def _parse_release(
         hdr = f"Hybrid.{hdr}"
     elif hybrid:
         hdr = "Hybrid"
+
+    # ── 10c. HMAX (juste avant résolution dans le nom final) ─────────────────
+    hmax = ""
+    if re.search(r'(?:^|\s)HMAX(?:\s|$)', name, re.IGNORECASE):
+        hmax = "HMAX"
+        name = _remove_token(name, "HMAX")
 
     # ── 11. Résolution ────────────────────────────────────────────────────────
     res = ""
@@ -820,6 +941,8 @@ def _parse_release(
 
     if not audio and mi:
         audio = _get_best_audio_from_mediainfo(mi)
+    elif audio and mi:
+        audio = _resolve_audio_channel_tag(audio, mi)
 
     if lang == "MUET":
         audio = ""
@@ -885,6 +1008,8 @@ def _parse_release(
         new += extras        # commence déjà par '.'
     if lang:
         new += f".{lang}"
+    if hmax:
+        new += f".{hmax}"
     if res:         new += f".{res}"
     if hdr:         new += f".{hdr}"
     if platform:    new += f".{platform}"

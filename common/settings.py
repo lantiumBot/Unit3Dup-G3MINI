@@ -112,6 +112,7 @@ class UserPreferences(BaseModel):
     SKIP_DUPLICATE: bool = False
     SKIP_TMDB: bool = False
     SKIP_YOUTUBE: bool = False
+    SKIP_SCREENSHOTS: bool = False
     SIZE_TH: int = 50
     WATCHER_INTERVAL: int = 60
     WATCHER_PATH: str | None = None
@@ -439,8 +440,8 @@ class Config(BaseModel):
             else:
                 field = field.upper()
 
-                if field in ['DUPLICATE_ON','SKIP_DUPLICATE','SKIP_TMDB','SKIP_YOUTUBE','RESIZE_SCSHOT','ANON',
-                             'WEBP_ENABLED', 'CACHE_SCR','CACHE_DBONLINE', 'PERSONAL_RELEASE']:
+                if field in ['DUPLICATE_ON','SKIP_DUPLICATE','SKIP_TMDB','SKIP_YOUTUBE','SKIP_SCREENSHOTS',
+                             'RESIZE_SCSHOT','ANON', 'WEBP_ENABLED', 'CACHE_SCR','CACHE_DBONLINE', 'PERSONAL_RELEASE']:
                     section[field] = Validate.boolean(value=section[field], field_name=field)
 
                 if field in ['TORRENT_COMMENT','WATCHER_PATH','DEFAULT_TRACKER']:
@@ -586,6 +587,7 @@ class Load:
                 "SKIP_DUPLICATE": "false",
                 "SKIP_TMDB": "false",
                 "SKIP_YOUTUBE" :'true',
+                "SKIP_SCREENSHOTS": "false",
                 "SIZE_TH": 10,
                 "WATCHER_INTERVAL": 60,
                 "WATCHER_PATH": "no_path",

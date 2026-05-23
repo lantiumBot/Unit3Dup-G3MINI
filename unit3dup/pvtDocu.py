@@ -78,6 +78,11 @@ class PdfImages:
     def build_info(self):
         """Build the information to send to the tracker"""
 
+        if config_settings.user_preferences.SKIP_SCREENSHOTS:
+            custom_console.bot_log("[SCREENSHOTS] Ignorés (SKIP_SCREENSHOTS activé)")
+            self.description = ''
+            return
+
         # If cache is enabled and the title is already cached
         if config_settings.user_preferences.CACHE_SCR:
             description = self.load_cache(self.file_name)
