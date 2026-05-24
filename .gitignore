@@ -56,3 +56,4 @@ Unit3Dbot.json
 # Tests
 tests/
 .claude/
+api.txt
