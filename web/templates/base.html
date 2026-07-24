@@ -4,6 +4,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Unit3Dup — {% block title %}{% endblock %}</title>
+  <link rel="icon" href="data:,">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.3/dist/css/bootstrap.min.css">
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.3/font/bootstrap-icons.min.css">
   <link rel="stylesheet" href="/static/css/style.css">
@@ -56,6 +57,18 @@
         </a>
       </li>
       <li class="nav-item">
+        <a href="/rss" class="btn btn-sm {% if page=='rss' %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
+          <i class="bi bi-rss-fill"></i>
+          <span data-i18n="nav.rss">RSS</span>
+        </a>
+      </li>
+      <li class="nav-item">
+        <a href="/inventory" class="btn btn-sm {% if page=='inventory' %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
+          <i class="bi bi-collection-fill"></i>
+          <span data-i18n="nav.inventory">Inventaire</span>
+        </a>
+      </li>
+      <li class="nav-item">
         <a href="/config" class="btn btn-sm {% if page=='config' %}btn-primary{% else %}btn-outline-secondary{% endif %} d-flex align-items-center gap-1">
           <i class="bi bi-gear-fill"></i>
           <span data-i18n="nav.config">Config</span>
@@ -65,6 +78,12 @@
 
     <div class="d-flex align-items-center gap-2 mt-2 mt-lg-0">
       {% if page=='jobs' %}<span id="conn-dot" class="badge bg-danger" data-i18n="nav.disconnected">⬤ Déconnecté</span>{% endif %}
+
+      <button class="btn btn-sm btn-outline-danger" id="btn-logout" onclick="doLogout()"
+              title="Déconnexion" data-i18n-title="auth.logout_title"
+              {% if not show_logout_btn %}style="display:none"{% endif %}>
+        <i class="bi bi-box-arrow-right"></i>
+      </button>
 
       <!-- ── Language selector ───────────────────────────────────────────── -->
       <div class="dropdown">
@@ -79,6 +98,30 @@
           <li><a class="dropdown-item" href="#" onclick="i18n.setLang('it');return false">🇮🇹 Italiano</a></li>
           <li><a class="dropdown-item" href="#" onclick="i18n.setLang('de');return false">🇩🇪 Deutsch</a></li>
         </ul>
+      </div>
+
+      <!-- ── Notification center (J) ──────────────────────────────────────── -->
+      <div class="dropdown">
+        <button class="btn btn-sm btn-outline-secondary position-relative" id="notif-bell-btn"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                data-i18n-title="nav.notif_title" title="Notifications">
+          <i class="bi bi-bell-fill"></i>
+          <span class="position-absolute top-0 start-100 translate-middle badge rounded-pill bg-danger d-none"
+                id="notif-badge" style="font-size:.6rem">0</span>
+        </button>
+        <div class="dropdown-menu dropdown-menu-end p-0" id="notif-dropdown"
+             style="width:320px;max-height:480px;overflow-y:auto;z-index:9998">
+          <div class="d-flex align-items-center px-3 py-2 border-bottom">
+            <span class="fw-semibold me-auto small" data-i18n="nav.notif_title">Notifications</span>
+            <button class="btn btn-sm btn-link text-danger p-0 ms-2"
+                    onclick="clearNotifCenter();return false"
+                    data-i18n="nav.notif_clear">Effacer</button>
+          </div>
+          <div id="notif-list">
+            <p class="text-muted small text-center py-3 mb-0" id="notif-empty-msg"
+               data-i18n="nav.notif_empty">Aucune notification</p>
+          </div>
+        </div>
       </div>
 
       <!-- ── Theme toggle ────────────────────────────────────────────────── -->
@@ -129,8 +172,88 @@
     el.className = `toast align-items-center text-bg-${type} border-0`;
     document.getElementById("toast-body").textContent = msg;
     bootstrap.Toast.getOrCreateInstance(el, { delay: 3500 }).show();
+    // J: log to notification center
+    addNotifToCenter(msg, type);
+  }
+
+  // ── Notification center (J) ───────────────────────────────────────────────
+  const _notifHistory = [];
+  const _NOTIF_MAX    = 20;
+  let   _notifUnread  = 0;
+
+  function _escHtmlBase(s) {
+    return String(s).replace(/[&<>"']/g,
+      c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c])
+    );
+  }
+
+  const _notifTypeIcon = {
+    success:   "bi-check-circle-fill text-success",
+    danger:    "bi-x-circle-fill text-danger",
+    warning:   "bi-exclamation-triangle-fill text-warning",
+    info:      "bi-info-circle-fill text-info",
+    secondary: "bi-circle text-secondary",
+  };
+
+  function addNotifToCenter(msg, type) {
+    const ts = new Date().toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" });
+    _notifHistory.unshift({ msg, type, ts });
+    if (_notifHistory.length > _NOTIF_MAX) _notifHistory.pop();
+    _notifUnread++;
+    _renderNotifCenter();
+  }
+
+  function _renderNotifCenter() {
+    const list  = document.getElementById("notif-list");
+    const badge = document.getElementById("notif-badge");
+    if (badge) {
+      if (_notifUnread > 0) {
+        badge.textContent = _notifUnread > 99 ? "99+" : String(_notifUnread);
+        badge.classList.remove("d-none");
+      } else {
+        badge.classList.add("d-none");
+      }
+    }
+    if (!list) return;
+    const _t = (typeof t === "function") ? t : k => k;
+    if (!_notifHistory.length) {
+      list.innerHTML = `<p class="text-muted small text-center py-3 mb-0">${_t("nav.notif_empty")}</p>`;
+      return;
+    }
+    list.innerHTML = _notifHistory.map(n => `
+      <div class="d-flex align-items-start gap-2 px-3 py-2 border-bottom">
+        <i class="bi ${_notifTypeIcon[n.type] || "bi-circle text-secondary"} flex-shrink-0 mt-1"></i>
+        <span class="small flex-grow-1">${_escHtmlBase(n.msg)}</span>
+        <span class="text-muted" style="font-size:.7rem;white-space:nowrap">${n.ts}</span>
+      </div>
+    `).join("");
+  }
+
+  function clearNotifCenter() {
+    _notifHistory.length = 0;
+    _notifUnread = 0;
+    _renderNotifCenter();
+  }
+
+  // Reset unread counter when the dropdown is opened
+  document.addEventListener("DOMContentLoaded", () => {
+    const bellBtn = document.getElementById("notif-bell-btn");
+    if (bellBtn) {
+      bellBtn.addEventListener("click", () => {
+        _notifUnread = 0;
+        const badge = document.getElementById("notif-badge");
+        if (badge) badge.classList.add("d-none");
+      });
+    }
+  });
+
+  async function doLogout() {
+    await fetch("/api/auth/logout", {method:"POST"});
+    window.location.href = "/login";
   }
 </script>
 {% block scripts %}{% endblock %}
+<!-- Inactivity timeout + restart detection — loaded last, after all page scripts -->
+<script src="/static/js/dashboard-inactivity.js"></script>
 </body>
 </html>

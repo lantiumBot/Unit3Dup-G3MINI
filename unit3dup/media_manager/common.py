@@ -256,7 +256,7 @@ class UserContent:
         """
         try:
             # Check if we have a valid response from the tracker
-            if bittorrent_file.tracker_response:
+            if bittorrent_file.tracker_response and bittorrent_file.tracker_response != "ALREADY_UPLOADED":
                 if client:
                     # Télécharger le torrent depuis le tracker
                     downloaded_torrent_path = None

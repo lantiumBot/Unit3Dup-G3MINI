@@ -3,77 +3,265 @@
 
 {% block content %}
 
-<!-- ── Controls ─────────────────────────────────────────────────────────── -->
-<div class="d-flex flex-wrap gap-2 mb-4 align-items-center">
-  <button class="btn btn-outline-info" onclick="scanFolder()">
-    <i class="bi bi-search me-1"></i><span data-i18n="jobs.scan_btn">Analyser le dossier</span>
-  </button>
-  <button class="btn btn-success" id="btn-start" onclick="startJobs()" disabled>
-    <i class="bi bi-play-fill me-1"></i><span data-i18n="jobs.start_btn">Démarrer les uploads</span>
-  </button>
-  <button class="btn btn-outline-secondary" onclick="clearDoneJobs()">
-    <i class="bi bi-trash me-1"></i><span data-i18n="jobs.clear_btn">Supprimer les terminés</span>
-  </button>
-  <span class="text-muted small ms-auto" id="scan-summary"></span>
-</div>
+<!-- ── Consoles actives — au-dessus des onglets, toujours visible ─────────── -->
+<div id="active-console-dock" class="mb-3 d-none"></div>
 
-<!-- ── Preview table ─────────────────────────────────────────────────────── -->
-<div id="scan-preview" class="mb-4 d-none">
-  <div class="d-flex flex-wrap align-items-center gap-2 mb-2">
-    <h6 class="mb-0 text-secondary">
-      <i class="bi bi-list-check me-1"></i><span data-i18n="jobs.detected">Éléments détectés</span>
-    </h6>
-    <label class="form-check form-check-inline ms-auto mb-0 small text-muted">
-      <input class="form-check-input" type="checkbox" id="chk-show-history" onchange="toggleScanHistory(this)">
-      <span data-i18n="jobs.show_history">Afficher l'historique</span>
-    </label>
-  </div>
-  <div class="table-responsive">
-    <table class="table table-sm table-hover align-middle" id="preview-table">
-      <thead class="table-dark">
-        <tr>
-          <th style="width:2rem"><input type="checkbox" id="chk-all" onchange="toggleAll(this)"></th>
-          <th data-i18n="jobs.col.name">Nom</th>
-          <th data-i18n="jobs.col.type">Type</th>
-          <th data-i18n="jobs.col.tag">Tag</th>
-          <th data-i18n="jobs.col.seasons">Saisons</th>
-          <th data-i18n="jobs.col.status">Statut</th>
-        </tr>
-      </thead>
-      <tbody id="preview-body"></tbody>
-    </table>
-  </div>
-</div>
-
-<!-- ── Console active (job en cours) — toujours en haut ─────────────────────── -->
-<div id="active-console-dock" class="mb-3 d-none">
-  <div class="card border-primary shadow-sm active-console-card">
+<template id="tpl-console-panel">
+  <div class="active-console-panel card border-primary shadow-sm" data-panel-job-id="">
     <div class="card-header d-flex align-items-center gap-2 py-2 bg-primary bg-opacity-10">
-      <span class="spinner-border spinner-border-sm text-primary flex-shrink-0" id="active-console-spinner"></span>
+      <span class="panel-spinner spinner-border spinner-border-sm text-primary flex-shrink-0"></span>
       <span class="badge bg-primary" data-i18n="jobs.active_console.badge">En cours</span>
-      <span id="active-console-title" class="job-name font-mono small text-truncate flex-grow-1"></span>
-      <span class="badge bg-info text-dark font-mono job-tmdb-badge d-none flex-shrink-0"
-            id="active-console-tmdb" data-i18n-title="jobs.tmdb.badge_title" title="TMDB mémorisé"></span>
+      <span class="panel-title job-name font-mono small text-truncate flex-grow-1"></span>
+      <span class="badge bg-info text-dark font-mono job-tmdb-badge d-none flex-shrink-0 panel-tmdb"
+            data-i18n-title="jobs.tmdb.badge_title" title="TMDB mémorisé"></span>
     </div>
-    <div class="terminal" id="active-console-terminal" style="max-height:min(50vh,420px)"></div>
+    <div class="panel-terminal xterm-dock-wrap"></div>
     <div class="input-row d-flex gap-2 p-2 border-top bg-body-secondary align-items-center">
       <span class="input-group-text font-mono small px-2">›</span>
-      <input type="text" class="form-control form-control-sm font-mono" id="active-console-stdin"
+      <input type="text" class="form-control form-control-sm font-mono panel-stdin"
              data-i18n-placeholder="jobs.stdin_placeholder"
              placeholder="Réponse (TMDB ID, y/n …)" autocomplete="off">
-      <button type="button" class="btn btn-sm btn-primary" id="active-console-send">
+      <button type="button" class="btn btn-sm btn-primary panel-send-btn">
         <i class="bi bi-send-fill"></i>
       </button>
     </div>
   </div>
-</div>
+</template>
 
-<!-- ── Jobs list ─────────────────────────────────────────────────────────── -->
-<div id="jobs-list"></div>
-<p id="jobs-empty" class="text-muted text-center mt-5 d-none">
-  <i class="bi bi-inbox fs-1 d-block mb-2"></i>
-  <span data-i18n="jobs.empty">Aucun job en cours — lancez une analyse.</span>
-</p>
+<!-- ── Onglets Scan / Jobs en cours ─────────────────────────────────────── -->
+<ul class="nav nav-tabs mb-3" id="main-tabs" role="tablist">
+  <li class="nav-item" role="presentation">
+    <button class="nav-link active" id="tab-scan-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-scan" type="button" role="tab"
+            aria-controls="tab-scan" aria-selected="true">
+      <i class="bi bi-search me-1"></i><span data-i18n="jobs.tab.scan">Scan</span>
+    </button>
+  </li>
+  <li class="nav-item" role="presentation">
+    <button class="nav-link" id="tab-jobs-btn" data-bs-toggle="tab"
+            data-bs-target="#tab-jobs" type="button" role="tab"
+            aria-controls="tab-jobs" aria-selected="false">
+      <i class="bi bi-play-circle me-1"></i><span data-i18n="jobs.tab.jobs">Jobs en cours</span>
+      <span class="badge bg-primary ms-1 d-none" id="badge-jobs-tab">0</span>
+    </button>
+  </li>
+</ul>
+
+<div class="tab-content">
+
+  <!-- ── Onglet Scan ───────────────────────────────────────────────────── -->
+  <div class="tab-pane fade show active" id="tab-scan" role="tabpanel" aria-labelledby="tab-scan-btn">
+
+    <!-- Current folder indicator + bookmarks dropdown -->
+    <div class="d-flex align-items-center gap-2 mb-2 flex-wrap">
+      <i class="bi bi-folder2-open text-info"></i>
+      <span id="current-folder-label" class="text-muted small font-mono text-truncate" style="max-width:320px"></span>
+      <div class="dropdown d-none" id="folder-dropdown-wrap">
+        <button class="btn btn-sm btn-outline-secondary dropdown-toggle py-0 px-2"
+                type="button" data-bs-toggle="dropdown" aria-expanded="false"
+                title="Dossiers favoris">
+          <i class="bi bi-bookmark-star"></i>
+          <span class="badge bg-secondary ms-1" id="folder-bookmarks-count" style="display:none"></span>
+        </button>
+        <ul class="dropdown-menu dropdown-menu-end shadow" id="folder-bookmarks-menu"
+            style="min-width:480px;max-width:90vw;max-height:320px;overflow-y:auto"></ul>
+      </div>
+      <button class="btn btn-sm btn-link p-0 text-muted" onclick="_addCurrentFolderBookmark()"
+              title="Ajouter aux favoris" id="btn-bookmark-add">
+        <i class="bi bi-bookmark-plus"></i>
+      </button>
+    </div>
+
+    <!-- Controls -->
+    <div class="d-flex flex-wrap gap-2 mb-2 align-items-center">
+      <button class="btn btn-outline-info" id="btn-scan" onclick="scanFolder()">
+        <i class="bi bi-search me-1"></i><span data-i18n="jobs.scan_btn">Analyser le dossier</span>
+      </button>
+      <button class="btn btn-success" id="btn-start" onclick="startJobs()" disabled>
+        <i class="bi bi-play-fill me-1"></i><span data-i18n="jobs.start_btn">Démarrer les uploads</span>
+      </button>
+      <button class="btn btn-outline-secondary" id="btn-notif" onclick="requestNotifPermission()" title="Activer les notifications" style="display:none">
+        <i class="bi bi-bell"></i>
+      </button>
+      <span class="text-muted small ms-auto d-flex align-items-center gap-2">
+        <span id="inventory-cache-badge" class="badge text-bg-secondary d-none" style="font-size:.7rem;font-weight:400"></span>
+        <span id="scan-summary"></span>
+      </span>
+    </div>
+
+    <!-- Post-scan action buttons -->
+    <div id="scan-actions" class="d-none d-flex flex-wrap gap-2 mb-3 align-items-center">
+      <button class="btn btn-sm btn-outline-warning" onclick="rescanFolder()">
+        <i class="bi bi-arrow-repeat me-1"></i><span data-i18n="jobs.rescan_btn">Revérification</span>
+      </button>
+      <button class="btn btn-sm btn-outline-primary" id="btn-recheck-tmdb" onclick="recheckTmdb()">
+        <i class="bi bi-film me-1"></i><span data-i18n="jobs.recheck_tmdb_btn">TMDB</span>
+      </button>
+      <button class="btn btn-sm btn-outline-info" id="btn-recheck-dup" onclick="recheckDuplicates()">
+        <i class="bi bi-copy me-1"></i><span id="btn-recheck-dup-label" data-i18n="jobs.recheck_dup_btn">Doublons</span>
+      </button>
+      <button class="btn btn-sm btn-outline-danger d-none" id="btn-ignore-dups" onclick="ignoreAllDuplicates()">
+        <i class="bi bi-x-circle me-1"></i><span data-i18n="jobs.ignore_dups_btn">Ignorer les doublons</span>
+      </button>
+      <button class="btn btn-sm btn-outline-secondary" id="btn-ignore-selected" onclick="ignoreSelectedReleases()">
+        <i class="bi bi-eye-slash me-1"></i><span data-i18n="jobs.ignore_selected_btn">Ignorer les sélectionnées</span>
+      </button>
+      <span class="text-muted small align-self-center ms-2" data-i18n="jobs.post_scan_hint">
+        Revérification : relance inventaire + réanalyse incluant l'historique — Doublons : re-vérifie les doublons sur les items affichés
+      </span>
+
+      <!-- Filtres déplacés ici — hors de #scan-preview -->
+      <div class="ms-auto d-flex gap-3 align-items-center">
+        <label class="form-check form-check-inline mb-0 small text-muted">
+          <input class="form-check-input" type="checkbox" id="chk-show-history" onchange="toggleScanHistory(this)">
+          <span data-i18n="jobs.show_history">Afficher l'historique</span>
+        </label>
+        <label class="form-check form-check-inline mb-0 small text-muted">
+          <input class="form-check-input" type="checkbox" id="chk-hide-zero-dup" onchange="toggleHideZeroDup(this)">
+          <span data-i18n="jobs.hide_zero_dup">Masquer Δ 0%</span>
+        </label>
+        <label class="form-check form-check-inline mb-0 small text-muted">
+          <input class="form-check-input" type="checkbox" id="chk-hide-skipped" onchange="toggleHideSkipped(this)">
+          <span data-i18n="jobs.badge.ignored">Ignorés</span>
+        </label>
+      </div>
+    </div>
+
+    <!-- Smart selection buttons (Feature 2) -->
+    <div class="d-flex flex-wrap gap-1 mb-2" id="smart-select-btns">
+      <div class="btn-group btn-group-sm" role="group" aria-label="Sélection rapide">
+        <button class="btn btn-outline-secondary" onclick="_selectByStatus('pending')" data-i18n="jobs.sel.pending">Pending</button>
+        <button class="btn btn-outline-secondary" onclick="_selectByType('file')" data-i18n="jobs.sel.films">Films</button>
+        <button class="btn btn-outline-secondary" onclick="_selectByType('season')" data-i18n="jobs.sel.series">Séries</button>
+        <button class="btn btn-outline-secondary" onclick="_selectByType('collection')" data-i18n="jobs.sel.collections">Collections</button>
+        <button class="btn btn-outline-secondary" onclick="_invertSelection()" data-i18n="jobs.sel.invert">Inverser</button>
+      </div>
+    </div>
+
+    <!-- Scan progress -->
+    <div id="scan-progress-wrap" class="d-none mb-3">
+      <div class="d-flex align-items-center gap-2 mb-1">
+        <small id="scan-progress-label" class="text-muted"></small>
+        <small id="scan-progress-detail" class="text-muted me-auto"></small>
+        <button id="btn-cancel-scan" class="btn btn-sm btn-outline-danger d-none py-0 px-2"
+                onclick="cancelScan()">
+          <i class="bi bi-x-circle me-1"></i><span data-i18n="scan.btn.cancel">Annuler</span>
+        </button>
+      </div>
+      <div class="progress" style="height:6px">
+        <div id="scan-progress-bar"
+             class="progress-bar progress-bar-striped progress-bar-animated"
+             role="progressbar" style="width:0%"></div>
+      </div>
+    </div>
+
+    <!-- Preview table -->
+    <div id="scan-preview" class="mb-4 d-none">
+      <div class="d-flex align-items-center gap-2 mb-2">
+        <h6 class="mb-0 text-secondary">
+          <i class="bi bi-list-check me-1"></i><span data-i18n="jobs.detected">Éléments détectés</span>
+        </h6>
+        <input type="search" id="scan-filter-input" class="form-control form-control-sm ms-auto"
+               style="max-width:220px" placeholder="🔍"
+               data-i18n-placeholder="jobs.filter_placeholder"
+               oninput="filterScanPreview(this.value)">
+      </div>
+      <div class="table-responsive">
+        <table class="table table-sm table-hover align-middle" id="preview-table">
+          <thead class="table-dark">
+            <tr>
+              <th style="width:2rem"><input type="checkbox" id="chk-all" onchange="toggleAll(this)"></th>
+              <th data-i18n="jobs.col.name">Nom</th>
+              <th data-i18n="jobs.col.type">Type</th>
+              <th data-i18n="jobs.col.tag">Tag</th>
+              <th data-i18n="jobs.col.season_num" style="width:3rem">S.</th>
+              <th data-i18n="jobs.col.episode_num" style="width:3rem">Ép.</th>
+              <th data-i18n="jobs.col.year" style="width:4rem">Année</th>
+              <th data-i18n="jobs.col.origin" style="width:4rem">Origine</th>
+              <th data-i18n="jobs.col.tmdb" style="width:7.5rem">TMDB ID</th>
+              <th style="width:2.5rem" title="Voir sur TMDB"><i class="bi bi-image"></i></th>
+              <th data-i18n="jobs.col.resolution" style="width:5rem">Rés.</th>
+              <th data-i18n="jobs.col.source_type" style="width:6rem">Source</th>
+              <th data-i18n="jobs.col.encoding" style="width:5rem">Codec</th>
+              <th data-i18n="jobs.col.gemini_releases" style="min-width:8rem">Gemini</th>
+              <th onclick="sortScan('size_gb')" class="sort-header" style="cursor:pointer;white-space:nowrap" data-i18n="jobs.col.size">Taille <span id="sort-size_gb-ind"></span></th>
+              <th data-i18n="jobs.col.status">Statut</th>
+            </tr>
+          </thead>
+          <tbody id="preview-body"></tbody>
+        </table>
+      </div>
+    </div>
+
+  </div><!-- /tab-scan -->
+
+  <!-- ── Onglet Jobs en cours ──────────────────────────────────────────── -->
+  <div class="tab-pane fade" id="tab-jobs" role="tabpanel" aria-labelledby="tab-jobs-btn">
+
+    <div id="queue-eta-label" class="text-muted small mb-2 font-mono"></div>
+
+    <div class="d-flex flex-wrap gap-2 mb-3">
+      <button class="btn btn-outline-secondary" onclick="clearDoneJobs()">
+        <i class="bi bi-trash me-1"></i><span data-i18n="jobs.clear_btn">Supprimer les terminés</span>
+      </button>
+    </div>
+
+    <div id="jobs-list"></div>
+    <p id="jobs-empty" class="text-muted text-center mt-5 d-none">
+      <i class="bi bi-inbox fs-1 d-block mb-2"></i>
+      <span data-i18n="jobs.empty">Aucun job en cours — lancez une analyse.</span>
+    </p>
+
+  </div><!-- /tab-jobs -->
+
+</div><!-- /tab-content -->
+
+<!-- ── Modal Vérification des noms d'upload ───────────────────────────────── -->
+<div class="modal fade" id="modal-verify" tabindex="-1" aria-labelledby="modal-verify-label" aria-hidden="true">
+  <div class="modal-dialog modal-xl modal-dialog-scrollable">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="modal-verify-label">
+          <i class="bi bi-check2-square me-2"></i><span data-i18n="verify.modal.title">Vérification des noms d'upload</span>
+        </h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body px-3 py-2">
+        <!-- hint -->
+        <p class="text-muted small mb-2" id="verify-hint" data-i18n="verify.hint">
+          Vérifiez les noms normalisés avant de lancer. Corrigez si nécessaire — le champ est éditable.
+        </p>
+        <!-- loading state -->
+        <div id="verify-loading" class="text-center py-4 d-none">
+          <div class="spinner-border text-primary" role="status"></div>
+          <p class="text-muted mt-2 small" data-i18n="verify.loading">Calcul des noms normalisés…</p>
+        </div>
+        <!-- table -->
+        <div class="table-responsive" id="verify-table-wrap">
+          <table class="table table-sm table-hover align-middle mb-0">
+            <thead class="table-dark sticky-top">
+              <tr>
+                <th style="width:3rem">#</th>
+                <th data-i18n="verify.col.source">Fichier source</th>
+                <th data-i18n="verify.col.upload_name">Nom d'upload (normalisé)</th>
+              </tr>
+            </thead>
+            <tbody id="verify-tbody"></tbody>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer gap-2">
+        <small class="text-muted me-auto" id="verify-count"></small>
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">
+          <i class="bi bi-x-lg me-1"></i><span data-i18n="common.cancel">Annuler</span>
+        </button>
+        <button type="button" class="btn btn-success" id="btn-verify-confirm" onclick="_confirmVerify()">
+          <i class="bi bi-play-fill me-1"></i><span data-i18n="verify.btn.confirm">Lancer les jobs</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
 
 {% endblock %}
 
@@ -82,6 +270,7 @@
 <template id="tpl-job">
   <div class="job-card card mb-3" data-job-id="">
     <div class="card-header d-flex align-items-center gap-2 py-2">
+      <span class="job-drag-handle text-muted pe-1" data-i18n-title="jobs.drag_handle_title" title="Réordonner" style="cursor:grab">⠿</span>
       <span class="job-spinner spinner-border spinner-border-sm text-primary d-none" style="flex-shrink:0"></span>
       <span class="job-badge badge"></span>
       <span class="job-type badge bg-secondary"></span>
@@ -90,6 +279,10 @@
       <button class="btn btn-sm btn-outline-danger job-cancel-btn" onclick="cancelJob(this)"
               data-i18n-title="jobs.cancel_title" title="Annuler">
         <i class="bi bi-x-lg"></i>
+      </button>
+      <button class="btn btn-sm btn-outline-warning job-retry-btn d-none" onclick="retryJob(this)"
+              data-i18n-title="jobs.retry_title" title="Relancer">
+        <i class="bi bi-arrow-clockwise"></i>
       </button>
     </div>
     <div class="job-console-body d-none">
@@ -109,6 +302,15 @@
   </div>
 </template>
 
+<link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/css/xterm.css">
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/xterm@5.5.0/lib/xterm.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@xterm/addon-fit@0.10.0/lib/addon-fit.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+<!-- Load order matters: dashboard.js declares shared globals first -->
 <script src="/static/js/dashboard.js"></script>
+<script src="/static/js/dashboard-notifications.js"></script>
+<script src="/static/js/dashboard-console.js"></script>
+<script src="/static/js/dashboard-scan.js"></script>
+<script src="/static/js/dashboard-jobs.js"></script>
 {% endblock %}

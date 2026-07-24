@@ -1,7 +1,41 @@
 /* ── Stats page — ECharts Sankey + live torrent table ──────────────────── */
 "use strict";
 
+let _uploadChart = null;
+
+async function loadChart(days = 30) {
+  try {
+    const r = await fetch(`/api/stats/chart?days=${days}`);
+    const d = await r.json();
+    const ctx = document.getElementById("upload-chart")?.getContext("2d");
+    if (!ctx) return;
+    if (_uploadChart) _uploadChart.destroy();
+    const dark = document.getElementById("html-root")?.getAttribute("data-bs-theme") === "dark";
+    const gridColor = dark ? "rgba(255,255,255,0.1)" : "rgba(0,0,0,0.1)";
+    _uploadChart = new Chart(ctx, {
+      type: "bar",
+      data: {
+        labels: d.labels,
+        datasets: [
+          { label: t("stats.chart.done"),  data: d.done,  backgroundColor: "rgba(25,135,84,0.7)" },
+          { label: t("stats.chart.error"), data: d.error, backgroundColor: "rgba(220,53,69,0.5)" },
+        ],
+      },
+      options: {
+        responsive: true,
+        plugins: { legend: { display: true } },
+        scales: {
+          x: { stacked: true, grid: { color: gridColor }, ticks: { maxTicksLimit: 12, maxRotation: 45 } },
+          y: { stacked: true, grid: { color: gridColor }, beginAtZero: true, ticks: { stepSize: 1 } },
+        },
+      },
+    });
+  } catch {}
+}
+
 let sankeyChart = null;
+let _allTorrents = [];
+let _torrentSort = { col: "ratio", asc: false };
 
 function initChart() {
   const el = document.getElementById("sankey-chart");
@@ -80,6 +114,47 @@ function renderTorrents(torrents) {
   }).join("");
 }
 
+function sortTorrents(col) {
+  if (_torrentSort.col === col) {
+    _torrentSort.asc = !_torrentSort.asc;
+  } else {
+    _torrentSort.col = col;
+    _torrentSort.asc = col === "name";
+  }
+  _updateSortIndicators();
+  applyTorrentFilter();
+}
+
+function _updateSortIndicators() {
+  ["name","state","size","uploaded","ratio","upload_speed","download_speed"].forEach(c => {
+    const el = document.getElementById("sort-" + c);
+    if (!el) return;
+    el.textContent = c === _torrentSort.col ? (_torrentSort.asc ? " ▲" : " ▼") : "";
+  });
+}
+
+function applyTorrentFilter() {
+  const stateFilter = document.getElementById("torrent-state-filter")?.value || "";
+  let data = stateFilter
+    ? _allTorrents.filter(t => t.state === stateFilter || t.state_label?.toLowerCase().includes(stateFilter.toLowerCase()))
+    : [..._allTorrents];
+
+  const col = _torrentSort.col;
+  const asc = _torrentSort.asc;
+  data.sort((a, b) => {
+    let va = a[col] ?? "", vb = b[col] ?? "";
+    if (typeof va === "string") va = va.toLowerCase();
+    if (typeof vb === "string") vb = vb.toLowerCase();
+    return asc ? (va < vb ? -1 : va > vb ? 1 : 0) : (va > vb ? -1 : va < vb ? 1 : 0);
+  });
+
+  const countEl = document.getElementById("torrent-count");
+  if (countEl) countEl.textContent = `${data.length} / ${_allTorrents.length}`;
+
+  renderTorrents(data);
+  _updateSortIndicators();
+}
+
 async function refresh() {
   const resp = await fetch("/api/stats");
   const data = await resp.json();
@@ -109,7 +184,8 @@ async function refresh() {
 
   const tresp = await fetch("/api/torrents");
   const tdata = await tresp.json();
-  renderTorrents(tdata.torrents || []);
+  _allTorrents = tdata.torrents || [];
+  applyTorrentFilter();
 }
 
 function esc(s) {
@@ -126,5 +202,6 @@ document.addEventListener("locale-changed", refresh);
 document.addEventListener("DOMContentLoaded", () => {
   initChart();
   refresh();
+  loadChart(30);
   setInterval(refresh, 15000);
 });

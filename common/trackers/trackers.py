@@ -27,19 +27,29 @@ class TRACKData:
             codec=tracker_data.get("CODEC"),
         )
 
+    # Types prioritaires qui doivent l'emporter sur les sources (bluray, bdrip…)
+    # même si celles-ci apparaissent avant dans le nom de fichier.
+    _PRIORITY_TYPES = frozenset({
+        "remux", "bdremux", "full-disc", "vh", "untouched", "bd-untouched", "vu",
+    })
+
     def filter_type(self, file_name: str) -> int:
 
         file_name = ManageTitles.clean(file_name)
-        # >Clean the releaser sign
         file_name = file_name.replace("-", " ")
         word_list = file_name.lower().strip().split(" ")
 
-        # Caso 1: Cerca un TYPE_ID nel nome del file
+        # Passe 1 : types prioritaires (remux, full-disc…)
+        for word in word_list:
+            if word in self._PRIORITY_TYPES and word in self.type_id:
+                return self.type_id[word]
+
+        # Passe 2 : tous les autres types
         for word in word_list:
             if word in self.type_id:
                 return self.type_id[word]
 
-        # Caso 2: Se non trova un TYPE_ID, cerca un codec e ritorna 'encode'
+        # Passe 3 : fallback codec → encode
         for word in word_list:
             if word in self.codec:
                 return self.type_id.get("encode", -1)

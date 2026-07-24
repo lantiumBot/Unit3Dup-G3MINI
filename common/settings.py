@@ -61,8 +61,13 @@ class TrackerConfig(BaseModel):
     Gemini_URL: str
     Gemini_APIKEY: str | None = None
     Gemini_PID: str | None = None
+    Gemini_USERNAME: str | None = None
     MULTI_TRACKER: list[str] | None = None
     TMDB_APIKEY: str | None = None
+    # API Read Access Token TMDB (JWT) — méthode recommandée (Authorization: Bearer).
+    # Prioritaire sur TMDB_APIKEY si renseigné. Laisser à None pour utiliser l'ancienne
+    # authentification par api_key (toujours supportée par TMDB mais dépréciée).
+    TMDB_ACCESS_TOKEN: str | None = None
     IMGBB_KEY: str | None = None
     FREE_IMAGE_KEY: str | None = None
     LENSDUMP_KEY: str | None = None
@@ -377,18 +382,22 @@ class Config(BaseModel):
 
     @model_validator(mode='before')
     def set_default_tracker_config(cls, v):
+        # Fields that are optional — None, empty string, and any value are all valid.
+        _OPTIONAL = {'GEMINI_USERNAME', 'TMDB_ACCESS_TOKEN'}
 
         section = v['tracker_config']
-        for field,value in section.items():
+        for field, value in section.items():
+            field_upper = field.upper()
+
+            if field_upper in _OPTIONAL:
+                continue  # no validation for optional fields
+
             if value is None:
                 print(f"Please fix the '{field}' value")
                 exit(1)
             else:
-                field_upper = field.upper()
-
                 if field_upper in ['GEMINI_URL']:
                    section[field] = Validate.url(value=section[field], field_name=field_upper)
-
 
                 if field_upper in ['GEMINI_PID']:
                    section[field] = Validate.pid(value=section[field], field_name=field_upper,
@@ -542,6 +551,7 @@ class Load:
                 "Gemini_PID": "no_key",
                 "MULTI_TRACKER" : ["gemini"],
                 "TMDB_APIKEY": "no_key",
+                "TMDB_ACCESS_TOKEN": None,
                 "IMGBB_KEY": "no_key",
                 "FREE_IMAGE_KEY": "no_key",
                 "LENSDUMP_KEY": "no_key",

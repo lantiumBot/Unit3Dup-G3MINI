@@ -1,5 +1,6 @@
 import argparse
 import json
+import os
 import re
 import requests
 
@@ -27,6 +28,29 @@ class UploadBot:
         self.tracker = Unit3d(tracker_name=tracker_name, release_name=content.torrent_name)
 
     def normalize_release_name(self, release_name: str) -> str:
+        # Sub-upload name map (season packs / S01E01 within integrale).
+        # Key = source_name (folder/file stem with spaces→dots) set by the dashboard.
+        name_map_raw = os.environ.get("U3D_CUSTOM_NAME_MAP", "").strip()
+        if name_map_raw:
+            try:
+                import json as _j
+                name_map = _j.loads(name_map_raw)
+                if release_name in name_map:
+                    return name_map[release_name]
+                # Fallback: raw file stem (dashboard key) may differ from display_name
+                # (e.g. CLI strips "CUSTOM" from display_name → key mismatch)
+                if self.content.file_name:
+                    raw_stem = os.path.splitext(os.path.basename(self.content.file_name))[0].replace(" ", ".")
+                    if raw_stem != release_name and raw_stem in name_map:
+                        return name_map[raw_stem]
+            except Exception:
+                pass
+
+        # Dashboard verify-modal override: use the name the user confirmed.
+        override = os.environ.get("U3D_CUSTOM_RELEASE_NAME", "").strip()
+        if override:
+            return override
+
         mediainfo_text: str | None = None
         is_silent: bool = False
 
@@ -36,18 +60,99 @@ class UploadBot:
         if self.content.mediafile and hasattr(self.content.mediafile, 'is_silent'):
             is_silent = self.content.mediafile.is_silent
 
+        # Fallback : si le contenu est un dossier (pack/integrale) sans mediafile,
+        # cherche le premier fichier vidéo pour récupérer codec audio + canaux.
+        if not mediainfo_text:
+            _VID_EXTS = {'.mkv', '.avi', '.mp4', '.mov', '.ts', '.m2ts'}
+            folder = None
+            if self.content.folder:
+                folder = self.content.folder
+            elif self.content.file_name and os.path.isdir(self.content.file_name):
+                folder = self.content.file_name
+            if folder and os.path.isdir(folder):
+                try:
+                    import glob as _glob
+                    candidates = [
+                        p for ext in _VID_EXTS
+                        for p in _glob.glob(os.path.join(folder, '**', f'*{ext}'), recursive=True)
+                        if os.path.isfile(p)
+                    ]
+                    if candidates:
+                        best = max(candidates, key=os.path.getsize)
+                        from common.mediainfo import MediaFile as _MF
+                        _mf = _MF(best)
+                        mediainfo_text = _mf.info or None
+                        if not is_silent and hasattr(_mf, 'is_silent'):
+                            is_silent = _mf.is_silent
+                except Exception:
+                    pass
+
         tv_year = None
         torrent_pack = False
         if self.content.category == "tv":
             tv_year = self.content.release_year
             torrent_pack = bool(self.content.torrent_pack)
-        return _normalize_release_name(
+
+        # Remonte les dossiers parents pour fournir des infos manquantes (ex: année)
+        parent_names: list[str] = []
+        base_path = None
+        if self.content.file_name:
+            base_path = os.path.dirname(os.path.abspath(self.content.file_name))
+        elif self.content.folder:
+            base_path = os.path.abspath(self.content.folder)
+        if base_path:
+            for _ in range(2):
+                parent = os.path.dirname(base_path)
+                if parent == base_path:
+                    break
+                parent_names.append(os.path.basename(parent))
+                base_path = parent
+
+        # Pour les intégrales/packs saison, complète les infos manquantes depuis
+        # les sous-dossiers (résolution, codec, langue, tag…).
+        if not parent_names:
+            folder = None
+            if self.content.folder:
+                folder = os.path.abspath(self.content.folder)
+            elif self.content.file_name:
+                folder = os.path.dirname(os.path.abspath(self.content.file_name))
+            if folder and os.path.isdir(folder):
+                _S_RE = re.compile(r'(?<![A-Za-z])S(\d{1,2})(?![0-9E])', re.IGNORECASE)
+                _VID  = {'.mkv', '.avi', '.mp4', '.mov', '.ts', '.m2ts'}
+                try:
+                    # Cherche le premier sous-dossier contenant un numéro de saison
+                    for entry in sorted(os.scandir(folder), key=lambda e: e.name):
+                        if entry.is_dir() and _S_RE.search(entry.name):
+                            parent_names = [entry.name]
+                            break
+                    # Sinon, premier fichier vidéo du dossier courant
+                    if not parent_names:
+                        for entry in sorted(os.scandir(folder), key=lambda e: e.name):
+                            if entry.is_file() and os.path.splitext(entry.name)[1].lower() in _VID:
+                                parent_names = [os.path.splitext(entry.name)[0]]
+                                break
+                except (PermissionError, OSError):
+                    pass
+
+        normalized = _normalize_release_name(
             release_name,
             mediainfo_text,
             is_silent,
             tv_year=tv_year,
             torrent_pack=torrent_pack,
+            parent_names=parent_names or None,
         )
+
+        # Correction langue selon le pays d'origine TMDB (injecté par le dashboard)
+        tmdb_origin = os.environ.get("U3D_TMDB_ORIGIN", "").strip()
+        if tmdb_origin:
+            origins = {o.strip().upper() for o in tmdb_origin.split(",")}
+            if "FR" in origins:
+                normalized = re.sub(r'(?<![A-Za-z])VFF(?![A-Za-z])', 'VOF', normalized)
+            if "CA" in origins:
+                normalized = re.sub(r'(?<![A-Za-z])VFQ(?![A-Za-z])', 'VOQ', normalized)
+
+        return normalized
 
     def _check_personal_release_by_tag(self, release_name: str) -> int:
         """
@@ -141,6 +246,19 @@ class UploadBot:
                 name_error = str(_message)
             error_message =f"{self.__class__.__name__} - {name_error} : {info_hash_error}"
 
+            # "Name already taken" or "info_hash already taken" → release already on tracker.
+            # Treat as a non-fatal duplicate rather than an upload error.
+            def _is_duplicate_error(text: str) -> bool:
+                t = text.lower()
+                return "déjà" in t or "already" in t or "taken" in t
+
+            if _is_duplicate_error(name_error) or _is_duplicate_error(info_hash_error):
+                custom_console.bot_warning_log(
+                    f"\n[RESPONSE]-> '{self.tracker_name}' — Release déjà présente sur le tracker, upload ignoré\n\n"
+                )
+                custom_console.rule()
+                return "ALREADY_UPLOADED", ""
+
         custom_console.bot_error_log(f"\n[RESPONSE]-> '{error_message}\n\n")
         custom_console.rule()
         return {}, error_message
@@ -158,6 +276,7 @@ class UploadBot:
         release_name = self.content.display_name.replace(" ", ".")
         release_name = self.normalize_release_name(release_name)
         self.tracker.data["name"] = release_name
+        custom_console.bot_log(f"'RELEASE NAME'..{{{release_name}}}\n")
         self.tracker.data["tmdb"] = show_id
         self.tracker.data["imdb"] = imdb_id if imdb_id else 0
         self.tracker.data["keywords"] = show_keywords_list
@@ -181,7 +300,11 @@ class UploadBot:
         self.tracker.data["mediainfo"] = video_info.mediainfo
         self.tracker.data["description"] = video_info.description
         self.tracker.data["sd"] = video_info.is_hd
-        self.tracker.data["type_id"] = self.tracker_data.filter_type(self.content.file_name)
+        _altro_id = self.tracker_data.type_id.get("altro", -1)
+        _type_id = self.tracker_data.filter_type(release_name)
+        if _type_id == _altro_id:
+            _type_id = self.tracker_data.filter_type(self.content.file_name)
+        self.tracker.data["type_id"] = _type_id
         if self._is_integrale_pack(self.content):
             self.tracker.data["season_number"] = 0
             self.tracker.data["episode_number"] = 0
@@ -199,6 +322,7 @@ class UploadBot:
         release_name = self.content.display_name.replace(" ", ".")
         release_name = self.normalize_release_name(release_name)
         self.tracker.data["name"] = release_name
+        custom_console.bot_log(f"'RELEASE NAME'..{{{release_name}}}\n")
         self.tracker.data["tmdb"] = 0
         self.tracker.data["category_id"] = self.tracker_data.category.get(self.content.category)
         self.tracker.data["anonymous"] = int(config_settings.user_preferences.ANON)
@@ -213,11 +337,16 @@ class UploadBot:
         release_name = self.content.display_name.replace(" ", ".")
         release_name = self.normalize_release_name(release_name)
         self.tracker.data["name"] = release_name
+        custom_console.bot_log(f"'RELEASE NAME'..{{{release_name}}}\n")
         self.tracker.data["tmdb"] = 0
         self.tracker.data["category_id"] = self.tracker_data.category.get(self.content.category)
         self.tracker.data["anonymous"] = int(config_settings.user_preferences.ANON)
         self.tracker.data["description"] = document_info.description
-        self.tracker.data["type_id"] = self.tracker_data.filter_type(self.content.file_name)
+        _altro_id = self.tracker_data.type_id.get("altro", -1)
+        _type_id = self.tracker_data.filter_type(release_name)
+        if _type_id == _altro_id:
+            _type_id = self.tracker_data.filter_type(self.content.file_name)
+        self.tracker.data["type_id"] = _type_id
         self.tracker.data["resolution_id"] = ""
         self.tracker.data["personal_release"] = self._check_personal_release_by_tag(release_name)
         return self.tracker

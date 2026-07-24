@@ -36,6 +36,8 @@ ENABLE_LOG = True
 T = TypeVar('T')
 _USE_DEFAULT_LANG = object()
 TMDB_TRAILER_LANG_FALLBACK = ("fr-FR", "en-US", None)
+# Sentinel pour détecter une clé nulle/vide
+_NO_KEY_VALUES = frozenset({"no_key", "", None})
 
 class MovieEndpoint:
     @staticmethod
@@ -107,10 +109,8 @@ class TvEndpoint:
 
 class TmdbAPI(MyHttp):
 
-    params = {
-        "api_key": config.TMDB_APIKEY,
-        "language": "it-IT",
-    }
+    # Langue par défaut pour les requêtes TMDB (BCP-47 : fr-FR, en-US, it-IT…)
+    _TMDB_LANGUAGE = "fr-FR"
 
     # Mappatura automatica degli endpoint
     ENDPOINTS = {
@@ -120,26 +120,55 @@ class TmdbAPI(MyHttp):
 
     def __init__(self):
         """
-        Initialize the Api instance with an HTTP client
+        Initialize the Api instance with an HTTP client.
+
+        Authentication strategy (priorité décroissante) :
+        1. TMDB_ACCESS_TOKEN configuré → Authorization: Bearer <token>  (recommandé TMDB v3/v4)
+        2. Fallback → api_key en query parameter  (supporté mais méthode legacy)
         """
         headers = Agent.headers()
+
+        access_token = getattr(config, 'TMDB_ACCESS_TOKEN', None)
+        _use_bearer = (
+            isinstance(access_token, str)
+            and access_token.strip().lower() not in _NO_KEY_VALUES
+        )
+
+        if _use_bearer:
+            # Méthode recommandée : Authorization header — aucun api_key dans les params
+            headers["Authorization"] = f"Bearer {access_token.strip()}"
+            self._auth_params: dict = {}
+        else:
+            # Méthode legacy : api_key en query param
+            self._auth_params = {"api_key": config.TMDB_APIKEY}
+
+        # Paramètres communs à toutes les requêtes (auth + langue)
+        self.params: dict = {**self._auth_params, "language": self._TMDB_LANGUAGE}
+
         super().__init__(headers)
         self.http_client = self.session
 
-    def _search(self, query: str, category: str) -> list[T] | None:
+    def _search(self, query: str, category: str, year: int | None = None) -> list[T] | None:
         """
         Searches for data based on a query and category.
         :param query: search query
         :param category: category of the search query, e.g., 'movie' or 'tv'
+        :param year: optional release year to narrow results
         :return: list of T or None
         """
         # Only tv and movie
         if category not in ['movie', 'tv']:
             custom_console.bot_warning_log("Check the category of the search query")
             return []
+        extra_params: dict | None = None
+        if year:
+            # TV   : first_air_date_year (restreint à la date de première diffusion)
+            # Movie: primary_release_year (plus précis que le champ générique year)
+            year_key = "first_air_date_year" if category == "tv" else "primary_release_year"
+            extra_params = {year_key: year}
         if endpoint_class := self.ENDPOINTS.get(category):
             request = endpoint_class.search(query)
-            return self.request(endpoint=request)
+            return self.request(endpoint=request, extra_params=extra_params)
         else:
             print(f"Endpoint for category '{category}' not found.")
             return []
@@ -207,14 +236,18 @@ class TmdbAPI(MyHttp):
         self,
         endpoint: dict,
         language: str | None | object = _USE_DEFAULT_LANG,
+        extra_params: dict | None = None,
     ) -> list[T] | None:
         """
         Sends a request to the API and returns a list of instances of the specified 'datatype'.
         :param endpoint: request endpoint
         :param language: langue TMDB (fr-FR, en-US), None = sans paramètre language
+        :param extra_params: paramètres additionnels (ex: year, first_air_date_year)
         :return: list of T or None
         """
-        params = {**TmdbAPI.params, "query": endpoint['query']}
+        params = {**self.params, "query": endpoint['query']}
+        if extra_params:
+            params.update(extra_params)
         if language is _USE_DEFAULT_LANG:
             pass
         elif language is None:
@@ -257,11 +290,12 @@ class TmdbAPI(MyHttp):
             return datatype(**filtered)
 
 class DbOnline(TmdbAPI):
-    def __init__(self, media: Media, category: str, no_title: str) -> None:
+    def __init__(self, media: Media, category: str, no_title: str, year: int | None = None) -> None:
         super().__init__()
         self.media = media
         self.query = media.guess_title
         self.category = category
+        self.year = year
 
         # Load the cache file
         if config_settings.user_preferences.CACHE_DBONLINE:
@@ -342,7 +376,7 @@ class DbOnline(TmdbAPI):
                 return search_results
 
         # or start an on-line search
-        results = self._search(self.query, self.category)
+        results = self._search(self.query, self.category, year=self.year)
         # Use imdb_id when tmdb_id is not available
         imdb_id = 0
         if results:

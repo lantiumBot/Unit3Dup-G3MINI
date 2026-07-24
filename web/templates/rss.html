@@ -1,0 +1,233 @@
+{% extends "base.html" %}
+{% block title %}RSS{% endblock %}
+
+{% block content %}
+<div class="d-flex align-items-center gap-2 mb-4 flex-wrap">
+  <h5 class="mb-0"><i class="bi bi-rss-fill me-2 text-warning"></i><span data-i18n="rss.title">Gestion RSS</span></h5>
+  <button class="btn btn-sm btn-primary ms-auto" onclick="rssOpenModal()">
+    <i class="bi bi-plus-lg me-1"></i><span data-i18n="rss.add_btn">Ajouter un feed</span>
+  </button>
+  <button class="btn btn-sm btn-outline-secondary" onclick="rssLoadFeeds()">
+    <i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="common.refresh">Actualiser</span>
+  </button>
+</div>
+
+<!-- ── Feeds table ─────────────────────────────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-collection-fill text-warning"></i>
+    <span data-i18n="rss.feeds_title">Feeds configurés</span>
+    <span class="badge bg-secondary ms-1" id="rss-feed-count">0</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th style="width:2rem"></th>
+          <th data-i18n="rss.col.name">Nom</th>
+          <th data-i18n="rss.col.url">URL</th>
+          <th data-i18n="rss.col.interval">Intervalle</th>
+          <th data-i18n="rss.col.client">Client</th>
+          <th data-i18n="rss.col.last_fetch">Dernier fetch</th>
+          <th data-i18n="rss.col.items">Items</th>
+          <th data-i18n="rss.col.auto_dl">Auto DL</th>
+          <th data-i18n="rss.col.status">Statut</th>
+          <th data-i18n="rss.col.actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rss-feeds-body">
+        <tr><td colspan="10" class="text-center text-muted py-4" data-i18n="common.loading">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Items panel (shown when a feed is expanded) ───────────────────────── -->
+<div class="card mb-4 d-none" id="rss-items-card">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-list-ul text-info"></i>
+    <span id="rss-items-feed-name">—</span>
+    <span class="badge bg-secondary ms-1" id="rss-items-count">0</span>
+    <button class="btn btn-sm btn-outline-secondary ms-auto me-1" id="rss-hide-ignored-btn"
+            onclick="rssToggleHideIgnored()">
+      <i class="bi bi-eye-slash me-1"></i><span data-i18n="rss.items.hide_ignored_btn">Cacher Ignoré</span>
+    </button>
+    <button class="btn btn-sm btn-outline-warning me-1" id="rss-dup-check-btn"
+            onclick="rssCheckDuplicates()">
+      <i class="bi bi-search me-1"></i><span data-i18n="rss.items.dup_btn">Doublons Gemini</span>
+    </button>
+    <button class="btn btn-sm btn-success me-1" id="rss-dl-all-btn"
+            onclick="rssDownloadAllMatched()">
+      <i class="bi bi-cloud-download-fill me-1"></i><span data-i18n="rss.items.dl_all_btn">Tout télécharger</span>
+    </button>
+    <button class="btn btn-sm btn-outline-secondary" onclick="rssCloseItems()">
+      <i class="bi bi-x-lg"></i>
+    </button>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th data-i18n="rss.items.col.title">Titre</th>
+          <th data-i18n="rss.items.col.date">Date</th>
+          <th data-i18n="rss.items.col.matched">Filtre</th>
+          <th data-i18n="rss.items.col.duplicate">Doublon</th>
+          <th data-i18n="rss.items.col.category">Catégorie</th>
+          <th data-i18n="rss.items.col.downloaded">Téléchargé</th>
+          <th data-i18n="rss.items.col.actions">Actions</th>
+        </tr>
+      </thead>
+      <tbody id="rss-items-body">
+        <tr><td colspan="7" class="text-center text-muted py-3" data-i18n="rss.items.empty">Aucun item</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Torrent progress ───────────────────────────────────────────────────── -->
+<div class="card">
+  <div class="card-header fw-semibold d-flex align-items-center gap-2">
+    <i class="bi bi-hdd-network me-1 text-success"></i>
+    <span data-i18n="rss.progress.title">Progression client torrent</span>
+    <span class="badge bg-secondary ms-1 small" id="rss-torrent-count"></span>
+    <div class="ms-auto d-flex align-items-center gap-2">
+      <small class="text-muted" id="rss-torrent-updated"></small>
+      <div class="form-check form-switch mb-0">
+        <input class="form-check-input" type="checkbox" id="rss-auto-refresh" checked
+               onchange="rssToggleAutoRefresh(this.checked)">
+        <label class="form-check-label small" for="rss-auto-refresh" data-i18n="rss.progress.auto_refresh">Auto</label>
+      </div>
+    </div>
+  </div>
+  <div id="rss-torrent-error" class="alert alert-warning m-3 d-none" role="alert">
+    <i class="bi bi-exclamation-triangle-fill me-2"></i><span id="rss-torrent-error-msg"></span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm table-hover align-middle mb-0">
+      <thead class="table-dark">
+        <tr>
+          <th data-i18n="rss.progress.col.name">Nom</th>
+          <th data-i18n="rss.progress.col.state">État</th>
+          <th data-i18n="rss.progress.col.size">Taille</th>
+          <th data-i18n="rss.progress.col.progress">Progression</th>
+          <th data-i18n="rss.progress.col.dl_speed">↓ Vitesse</th>
+          <th data-i18n="rss.progress.col.up_speed">↑ Vitesse</th>
+          <th data-i18n="rss.progress.col.ratio">Ratio</th>
+        </tr>
+      </thead>
+      <tbody id="rss-torrent-body">
+        <tr><td colspan="7" class="text-center text-muted py-4" data-i18n="common.loading">Chargement…</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── Add / Edit Feed modal ─────────────────────────────────────────────── -->
+<div class="modal fade" id="rssFeedModal" tabindex="-1">
+  <div class="modal-dialog modal-lg">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 class="modal-title" id="rssFeedModalTitle" data-i18n="rss.modal.add_title">Ajouter un feed</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <input type="hidden" id="rss-modal-id">
+        <div class="row g-3">
+          <!-- Name -->
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.name">Nom</label>
+            <input type="text" class="form-control" id="rss-modal-name" placeholder="Mon feed">
+          </div>
+          <!-- Interval -->
+          <div class="col-md-3">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.interval">Intervalle (min)</label>
+            <input type="number" class="form-control" id="rss-modal-interval" value="30" min="5">
+          </div>
+          <!-- Enabled + Auto DL -->
+          <div class="col-md-3 d-flex flex-column justify-content-end pb-1 gap-2">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="rss-modal-enabled" checked>
+              <label class="form-check-label" for="rss-modal-enabled" data-i18n="rss.modal.enabled">Activé</label>
+            </div>
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="rss-modal-auto-download" checked>
+              <label class="form-check-label" for="rss-modal-auto-download" data-i18n="rss.modal.auto_download">DL automatique</label>
+            </div>
+          </div>
+          <!-- URL -->
+          <div class="col-12">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.url">URL du feed</label>
+            <input type="url" class="form-control font-monospace" id="rss-modal-url" placeholder="https://tracker.example/rss?passkey=…">
+          </div>
+          <!-- Save path -->
+          <div class="col-md-8">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.save_path">Dossier de destination</label>
+            <input type="text" class="form-control font-monospace" id="rss-modal-save-path" placeholder="/downloads/films">
+            <div class="form-text" data-i18n="rss.modal.save_path_hint">Laisser vide pour utiliser le dossier par défaut du client</div>
+          </div>
+          <!-- Torrent client -->
+          <div class="col-md-4">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.client">Client torrent</label>
+            <select class="form-select" id="rss-modal-client">
+              <option value="" data-i18n="rss.modal.client_default">Défaut (config Unit3Dbot)</option>
+              <option value="qbittorrent">qBittorrent</option>
+              <option value="transmission">Transmission</option>
+              <option value="rtorrent">rTorrent</option>
+            </select>
+          </div>
+          <!-- Tag -->
+          <div class="col-md-4">
+            <label class="form-label fw-semibold" data-i18n="rss.modal.tag">Étiquette</label>
+            <input type="text" class="form-control" id="rss-modal-tag" placeholder="RSS">
+            <div class="form-text" data-i18n="rss.modal.tag_hint">Étiquette appliquée au client torrent (défaut : RSS)</div>
+          </div>
+        </div>
+
+        <!-- Filters -->
+        <hr class="my-3">
+        <div class="d-flex align-items-center gap-2 mb-2">
+          <span class="fw-semibold" data-i18n="rss.modal.filters_title">Filtres</span>
+          <button type="button" class="btn btn-sm btn-outline-primary ms-auto" onclick="rssAddFilter()">
+            <i class="bi bi-plus-lg me-1"></i><span data-i18n="rss.modal.add_filter">Ajouter</span>
+          </button>
+        </div>
+        <div class="form-text mb-2" data-i18n="rss.modal.filters_hint">Include : au moins un doit correspondre — Exclude : aucun ne doit correspondre</div>
+        <div class="form-check form-switch mb-2">
+          <input class="form-check-input" type="checkbox" role="switch" id="rss-modal-match-all">
+          <label class="form-check-label small" for="rss-modal-match-all" data-i18n="rss.modal.filter_match_all">Tous les filtres Include doivent correspondre (ET)</label>
+        </div>
+        <div id="rss-filters-list"></div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-secondary" data-bs-dismiss="modal" data-i18n="common.cancel">Annuler</button>
+        <button type="button" class="btn btn-primary" onclick="rssSaveFeed()">
+          <i class="bi bi-check-lg me-1"></i><span data-i18n="common.save">Sauvegarder</span>
+        </button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ── Filter row template ────────────────────────────────────────────────── -->
+<template id="rss-filter-tpl">
+  <div class="d-flex align-items-center gap-2 mb-2 rss-filter-row">
+    <select class="form-select form-select-sm" style="max-width:120px" data-role="type">
+      <option value="include" data-i18n="rss.modal.filter_type_include">Inclure</option>
+      <option value="exclude" data-i18n="rss.modal.filter_type_exclude">Exclure</option>
+    </select>
+    <select class="form-select form-select-sm" style="max-width:110px" data-role="mode">
+      <option value="keyword" data-i18n="rss.modal.filter_mode_keyword">Mot-clé</option>
+      <option value="regex" data-i18n="rss.modal.filter_mode_regex">Regex</option>
+    </select>
+    <input type="text" class="form-control form-control-sm" data-role="pattern"
+           placeholder="1080p / FRENCH / .*\\.mkv">
+    <button type="button" class="btn btn-sm btn-outline-danger flex-shrink-0" onclick="this.closest('.rss-filter-row').remove()">
+      <i class="bi bi-trash3"></i>
+    </button>
+  </div>
+</template>
+{% endblock %}
+
+{% block scripts %}
+<script src="/static/js/rss.js"></script>
+{% endblock %}

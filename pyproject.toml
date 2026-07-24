@@ -31,3 +31,12 @@ dependencies = {file = ["requirements.txt"]}
 unit3dup = "unit3dup.__main__:main"
 
 
+[tool.pytest.ini_options]
+# Lancer depuis le dépôt racine avec le venv :
+#   .venv/Scripts/python -m pytest web/tests/ -v
+# Ou depuis le répertoire web/ :
+#   cd web && python -m pytest tests/ -v
+testpaths = ["web/tests"]
+addopts   = "-q"
+
+

@@ -55,9 +55,9 @@ class LastEpisodeToAir:
 @dataclass
 class Network:
     id: int
-    logo_path: str
     name: str
     origin_country: str
+    logo_path: str | None = None  # API peut renvoyer null
 
 
 @dataclass
@@ -109,12 +109,12 @@ class TVShowDetails(Media):
     original_name: str
     overview: str
     popularity: float
-    poster_path: str
     status: str
     tagline: str
     type: str
     vote_average: float
     vote_count: int
+    poster_path: str | None = None  # API peut renvoyer null
     languages: list[str] = field(default_factory=list)
     genres: list[Genre] = field(default_factory=list)
     backdrop_path: str | None = None

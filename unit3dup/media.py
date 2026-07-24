@@ -238,7 +238,9 @@ class Media:
     @property
     def guess_title(self)-> str:
         if not self._guess_title:
-            self._guess_title = title.Guessit(self.title_sanitized).guessit_title.strip()
+            raw = title.Guessit(self.title_sanitized).guessit_title.strip()
+            # Strip release-specific keywords guessit doesn't recognize (would corrupt TMDB query)
+            self._guess_title = re.sub(r'\bintegrale\b', '', raw, flags=re.IGNORECASE).strip()
         return self._guess_title
 
     @guess_title.setter

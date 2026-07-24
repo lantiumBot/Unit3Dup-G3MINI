@@ -17,6 +17,4 @@ cinemagoer==2023.5.1
 pathvalidate==3.2.3
 bencode2==0.3.24
 rtorrent-rpc==0.9.4
-
-
-
+feedparser==6.0.11

@@ -19,51 +19,48 @@ gemini_data = {
                  "size10": 50,
                  "size5": 25},
 
-    "TYPE_ID":{ "full-disc": 1,
-                "remux": 2,
-                "bdremux": 2,
-                "vh": 2,
-                "untouched": 2,
+    "TYPE_ID": {
+                # ── Vidéo ───────────────────────────────────────────────────
+                "full-disc":    1,   # FULL DISC
+                "remux":        2,   # REMUX
+                "bdremux":      2,
+                "untouched":    2,
                 "bd-untouched": 2,
-                "encode": 3,
-                "bluray": 3,
-                "fullhd": 3,
-                "hevc": 3,
-                "hdrip": 3,
-                "vu": 2,
-                "web-dl": 4,
-                "webdl": 4,
-                "web": 4,
-                "web-dlmux": 4,
-                "webrip": 5,
-                "hdtv": 6,
-                "mac": 12,
-                "macos": 12,
-                "windows": 13,
-                "pc": 13,
-                "cinema-md": 14,
-                "hdts": 14,
-                "wrs": 14,
-                "md": 14,
-                "altro": 15,
-                "pdf": 16,
-                "nintendo": 17,
-                "nsw": 17,
-                "ps4": 18,
-                "psn": 18,
-                "epub": 19,
-                "mp4": 20,
-                "pack": 22,
-                "avi": 23,
-                "dvdrip": 24,
-                "bdrip": 25,
-                "webmux": 26,
-                "dlmux": 27,
-                "bdmux": 29,
-                "3d": 32,
-                "cbr-cbz": 33,
-                "ps5": 35,
-                "psvr": 35,
+                "bdrip":        3,   # BDRip
+                "bluray":       3,
+                "mhd":          3,
+                "web-dl":       4,   # WEB
+                "webdl":        4,
+                "web":          4,
+                "web-dlmux":    4,
+                "webrip":       5,   # WEBRip
+                "hdtv":         6,   # HDTV
+                "iso":          7,   # ISO
+                "dvd":          11,  # DVD
+                "tvrip":        12,  # TVRip
+                "dvdrip":       13,  # DVDRip
+                "vhsrip":       38,  # VHSRip
+                "vh":           38,
+                "vu":           38,
+                # ── Jeux ────────────────────────────────────────────────────
+                "pc":           16,  # Jeux\Windows
+                "xbox":         20,  # Jeux\Xbox
+                "nintendo":     21,  # Jeux\Nintendo
+                "nsw":          21,
+                "ps4":          23,  # Jeux\Sony
+                "ps5":          23,
+                "psn":          23,
+                "psvr":         23,
+                # ── Livres ──────────────────────────────────────────────────
+                "epub":         27,  # Livres
+                "pdf":          27,
+                "cbr-cbz":      29,  # Livres\Comics
+                # ── Logiciels ───────────────────────────────────────────────
+                "windows":      34,  # Logiciels\Windows
+                "mac":          35,  # Logiciels\MacOS
+                "macos":        35,
+                "linux":        36,  # Logiciels\Linux
+                "altro":        37,  # Logiciels\Autres
     },
     "TYPE_ID_AUDIO":{ "flac": 7,
                       "alac": 8,

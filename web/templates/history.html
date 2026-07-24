@@ -4,10 +4,13 @@
 {% block content %}
 <div class="d-flex flex-wrap align-items-center gap-2 mb-4">
   <h5 class="mb-0"><i class="bi bi-clock-history me-2"></i><span data-i18n="history.title">Historique des uploads</span></h5>
-  <div class="ms-auto d-flex gap-2">
+  <div class="ms-auto d-flex flex-wrap gap-2">
     <button class="btn btn-sm btn-outline-secondary" onclick="refreshHistory()">
       <i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="common.refresh">Actualiser</span>
     </button>
+    <a class="btn btn-sm btn-outline-success" href="/api/history/export.csv" download>
+      <i class="bi bi-file-earmark-spreadsheet me-1"></i><span data-i18n="history.export_btn">Export CSV</span>
+    </a>
     <button class="btn btn-sm btn-outline-danger" onclick="clearHistory()">
       <i class="bi bi-trash me-1"></i><span data-i18n="history.clear_btn">Effacer tout</span>
     </button>
@@ -16,6 +19,55 @@
 
 <!-- Summary badges -->
 <div class="d-flex flex-wrap gap-2 mb-3" id="hist-summary"></div>
+
+<!-- M: Quick-filter chips -->
+<div class="d-flex flex-wrap gap-1 mb-2 align-items-center">
+  <span class="text-muted small me-1" data-i18n="history.chips.status_label">Statut :</span>
+  <button class="btn btn-xs btn-outline-secondary active" data-chip-status=""
+          onclick="_setChip('status','',this)" data-i18n="history.filter.all_statuses">Tous</button>
+  <button class="btn btn-xs btn-outline-success" data-chip-status="done"
+          onclick="_setChip('status','done',this)" data-i18n="history.filter.status_done">Succès</button>
+  <button class="btn btn-xs btn-outline-danger" data-chip-status="error"
+          onclick="_setChip('status','error',this)" data-i18n="history.filter.status_error">Erreur</button>
+  <span class="vr mx-1"></span>
+  <span class="text-muted small me-1" data-i18n="history.chips.type_label">Type :</span>
+  <button class="btn btn-xs btn-outline-secondary active" data-chip-type=""
+          onclick="_setChip('type','',this)" data-i18n="history.filter.all_types">Tous</button>
+  <button class="btn btn-xs btn-outline-warning text-dark" data-chip-type="file"
+          onclick="_setChip('type','file',this)" data-i18n="history.type.file">FILE</button>
+  <button class="btn btn-xs btn-outline-success" data-chip-type="season"
+          onclick="_setChip('type','season',this)" data-i18n="history.type.season">SEASON</button>
+  <button class="btn btn-xs btn-outline-info" data-chip-type="integrale"
+          onclick="_setChip('type','integrale',this)" data-i18n="history.type.integrale">INTÉGRALE</button>
+</div>
+
+<!-- Filter bar -->
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <div class="input-group input-group-sm" style="max-width:280px">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="search" class="form-control" id="hist-search"
+           placeholder="Rechercher…" oninput="_histFilterChanged()">
+  </div>
+  <select class="form-select form-select-sm" id="hist-filter-type" style="max-width:140px"
+          onchange="_histFilterChanged(); _syncChips()">
+    <option value="" data-i18n="history.filter.all_types">Tous types</option>
+    <option value="file" data-i18n="history.type.file">FILE</option>
+    <option value="season" data-i18n="history.type.season">SEASON</option>
+    <option value="integrale" data-i18n="history.type.integrale">INTEGRAL</option>
+  </select>
+  <select class="form-select form-select-sm" id="hist-filter-status" style="max-width:140px"
+          onchange="_histFilterChanged(); _syncChips()">
+    <option value="" data-i18n="history.filter.all_statuses">Tous statuts</option>
+    <option value="done" data-i18n="history.filter.status_done">Succès</option>
+    <option value="error" data-i18n="history.filter.status_error">Erreur</option>
+  </select>
+  <input type="date" class="form-control form-control-sm" id="hist-date-from"
+         style="max-width:145px" onchange="_histFilterChanged()"
+         title="Depuis" data-i18n-title="history.filter.date_from">
+  <input type="date" class="form-control form-control-sm" id="hist-date-to"
+         style="max-width:145px" onchange="_histFilterChanged()"
+         title="Jusqu'au" data-i18n-title="history.filter.date_to">
+</div>
 
 <!-- Table -->
 <div class="table-responsive">
@@ -42,6 +94,7 @@
     </tbody>
   </table>
 </div>
+<div id="hist-pagination" class="mt-3"></div>
 
 <!-- Modal détail JSON + console -->
 <div class="modal fade" id="detail-modal" tabindex="-1">
@@ -84,10 +137,51 @@
 <script>
 "use strict";
 
-async function refreshHistory() {
-  const resp = await fetch("/api/history");
-  const rows = await resp.json();
-  renderHistory(rows);
+let _histPage  = 1;
+let _histLimit = 50;
+let _histTotal = 0;
+let _histFilterTimer = null;
+
+function _histFilterChanged() {
+  clearTimeout(_histFilterTimer);
+  _histFilterTimer = setTimeout(() => refreshHistory(1), 300);
+}
+
+async function refreshHistory(page) {
+  page = page || 1;
+  _histPage = page;
+  const search  = document.getElementById("hist-search")?.value  || "";
+  const ftype   = document.getElementById("hist-filter-type")?.value || "";
+  const fstatus = document.getElementById("hist-filter-status")?.value || "";
+  const dfrom   = document.getElementById("hist-date-from")?.value || "";
+  const dto     = document.getElementById("hist-date-to")?.value || "";
+  const params  = new URLSearchParams({ page, limit: _histLimit });
+  if (search)  params.set("search",  search);
+  if (ftype)   params.set("type",    ftype);
+  if (fstatus) params.set("status",  fstatus);
+  if (dfrom)   params.set("date_from", dfrom);
+  if (dto)     params.set("date_to",   dto);
+  const resp = await fetch(`/api/history?${params}`);
+  const data = await resp.json();
+  _histTotal = data.total ?? 0;
+  renderHistory(data.rows || []);
+  renderPagination(data);
+}
+
+function renderPagination(data) {
+  const el = document.getElementById("hist-pagination");
+  if (!el) return;
+  const { page, pages, total, limit } = data;
+  if (pages <= 1) { el.innerHTML = ""; return; }
+  const prev = page > 1
+    ? `<li class="page-item"><a class="page-link" href="#" onclick="refreshHistory(${page-1});return false">‹</a></li>` : "";
+  const next = page < pages
+    ? `<li class="page-item"><a class="page-link" href="#" onclick="refreshHistory(${page+1});return false">›</a></li>` : "";
+  el.innerHTML = `<nav><ul class="pagination pagination-sm mb-0 justify-content-center">
+    ${prev}
+    <li class="page-item disabled"><span class="page-link">${page} / ${pages} (${total})</span></li>
+    ${next}
+  </ul></nav>`;
 }
 
 function renderHistory(rows) {
@@ -96,7 +190,7 @@ function renderHistory(rows) {
   const errs  = rows.filter(r => r.status === "error").length;
 
   document.getElementById("hist-summary").innerHTML = `
-    <span class="badge bg-secondary fs-6">${t("history.badge.total", rows.length)}</span>
+    <span class="badge bg-secondary fs-6">${t("history.badge.total", _histTotal)}</span>
     <span class="badge bg-success fs-6">${t("history.badge.ok", done)}</span>
     ${errs ? `<span class="badge bg-danger fs-6">${t("history.badge.errors", errs)}</span>` : ""}
   `;
@@ -153,7 +247,13 @@ function renderHistory(rows) {
       ? new Date(r.processed_at).toLocaleString(i18n.dateLocale())
       : "—";
 
-    return `<tr>
+    const expandRow = r.job_id
+      ? `<tr id="expand-${esc(r.job_id)}" class="transcript-row d-none bg-body-tertiary">
+           <td colspan="11" class="p-2"><div class="transcript-content"></div></td>
+         </tr>`
+      : "";
+    const rowStyle = r.job_id ? ' style="cursor:pointer"' : "";
+    return `<tr data-job-id="${esc(r.job_id || '')}"${rowStyle}>
       <td class="font-mono small text-truncate" style="max-width:260px" title="${esc(r.path)}">${esc(r.name)}</td>
       <td><span class="badge ${typeBadge[r.type] || 'bg-secondary'}">${t(typeKey[r.type] || "history.type.unknown")}</span></td>
       <td><span class="badge bg-dark border font-mono">${esc(r.tag || "—")}</span></td>
@@ -164,13 +264,21 @@ function renderHistory(rows) {
       <td class="small">${ratioCell}</td>
       <td class="small text-nowrap">${speedCell}</td>
       <td class="text-center">${jsonCell}</td>
-      <td>
-        <button class="btn btn-xs btn-outline-warning py-0 px-1" onclick="removeItem('${esc(r.path)}')"
+      <td class="text-nowrap">
+        <button class="btn btn-xs btn-outline-primary py-0 px-1 me-1"
+                data-path="${esc(r.path)}"
+                onclick="recheckItem(this.dataset.path, this)"
+                title="${t('history.btn.recheck_title')}">
+          <i class="bi bi-cloud-check"></i>
+        </button>
+        <button class="btn btn-xs btn-outline-warning py-0 px-1"
+                data-path="${esc(r.path)}"
+                onclick="removeItem(this.dataset.path)"
                 title="${t('history.btn.remove_title')}">
           <i class="bi bi-arrow-counterclockwise"></i>
         </button>
       </td>
-    </tr>`;
+    </tr>${expandRow}`;
   }).join("");
 }
 
@@ -221,7 +329,96 @@ function esc(s) {
   );
 }
 
-document.addEventListener("DOMContentLoaded", refreshHistory);
+// ── M: Quick-filter chip helpers ──────────────────────────────────────────
+function _setChip(field, value, btn) {
+  const selId = field === "status" ? "hist-filter-status" : "hist-filter-type";
+  const sel   = document.getElementById(selId);
+  if (sel) sel.value = value;
+  document.querySelectorAll(`[data-chip-${field}]`).forEach(c => c.classList.remove("active"));
+  btn.classList.add("active");
+  _histFilterChanged();
+}
+
+/** Keep chips in sync when the select changes directly. */
+function _syncChips() {
+  const typeVal   = document.getElementById("hist-filter-type")?.value   || "";
+  const statusVal = document.getElementById("hist-filter-status")?.value || "";
+  document.querySelectorAll("[data-chip-type]").forEach(c => {
+    c.classList.toggle("active", c.dataset.chipType === typeVal);
+  });
+  document.querySelectorAll("[data-chip-status]").forEach(c => {
+    c.classList.toggle("active", c.dataset.chipStatus === statusVal);
+  });
+}
+
+// ── O: Re-check against tracker ──────────────────────────────────────────
+async function recheckItem(path, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    const resp = await fetch("/api/history/recheck", {
+      method:  "POST",
+      headers: { "Content-Type": "application/json" },
+      body:    JSON.stringify({ paths: [path] }),
+    });
+    const data = await resp.json();
+    const result = data.results?.[0];
+    if (!result) { showToast(t("history.toast.recheck_error"), "danger"); return; }
+    const name = path.split(/[\\/]/).pop();
+    if (result.status === "duplicate") {
+      showToast(t("history.toast.recheck_duplicate", name), "warning");
+    } else if (result.status === "ok") {
+      showToast(t("history.toast.recheck_ok"), "success");
+    } else {
+      showToast(t("history.toast.recheck_error") + (result.detail ? ": " + result.detail : ""), "danger");
+    }
+  } catch {
+    showToast(t("history.toast.recheck_error"), "danger");
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const _urlQ = new URLSearchParams(window.location.search).get("search");
+  if (_urlQ) {
+    const _inp = document.getElementById("hist-search");
+    if (_inp) _inp.value = _urlQ;
+  }
+  refreshHistory();
+  // Feature 5: delegated click for inline transcript
+  document.getElementById("hist-body").addEventListener("click", async (e) => {
+    const tr = e.target.closest("tr[data-job-id]");
+    if (!tr || e.target.closest("button, a")) return;
+    const jobId = tr.dataset.jobId;
+    if (!jobId) return;
+    const expandTr = document.getElementById(`expand-${jobId}`);
+    if (!expandTr) return;
+    const isOpen = !expandTr.classList.contains("d-none");
+    // Close all
+    document.querySelectorAll(".transcript-row").forEach(el => el.classList.add("d-none"));
+    document.querySelectorAll("tr[data-job-id]").forEach(el => el.classList.remove("table-active"));
+    if (!isOpen) {
+      expandTr.classList.remove("d-none");
+      tr.classList.add("table-active");
+      const content = expandTr.querySelector(".transcript-content");
+      if (!content.dataset.loaded) {
+        content.innerHTML = `<div class="text-center py-2"><div class="spinner-border spinner-border-sm text-primary"></div></div>`;
+        try {
+          const r = await fetch(`/api/history/detail/${jobId}`);
+          const d = await r.json();
+          const transcript = d.transcript || "";
+          const lines = transcript.split("\n").filter(Boolean);
+          content.innerHTML = lines.length
+            ? `<pre class="terminal font-mono small mb-0 p-2" style="max-height:200px;overflow-y:auto;white-space:pre-wrap">${esc(lines.join("\n"))}</pre>`
+            : `<span class="text-muted small fst-italic">${t("history.transcript.empty") || "Aucun transcript"}</span>`;
+          content.dataset.loaded = "1";
+        } catch {
+          content.innerHTML = `<span class="text-danger small">${t("history.json.empty")}</span>`;
+        }
+      }
+    }
+  });
+});
 document.addEventListener("locale-changed", refreshHistory);
 setInterval(refreshHistory, 30000);
 </script>

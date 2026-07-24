@@ -4,9 +4,15 @@
 {% block content %}
 <div class="d-flex flex-wrap justify-content-between align-items-center mb-4 gap-2">
   <h5 class="mb-0"><i class="bi bi-sliders me-2"></i><span data-i18n="config.title">Paramètres Unit3Dup</span></h5>
-  <button class="btn btn-primary" onclick="saveSettings()">
-    <i class="bi bi-floppy-fill me-1"></i><span data-i18n="config.save_btn">Sauvegarder tout</span>
-  </button>
+  <div class="d-flex gap-2">
+    <input type="file" id="import-u3d-file" accept=".json" class="d-none">
+    <button class="btn btn-outline-secondary" onclick="importUnit3dbot()">
+      <i class="bi bi-upload me-1"></i><span data-i18n="config.import_btn">Importer Unit3Dbot.json</span>
+    </button>
+    <button class="btn btn-primary" onclick="saveSettings()">
+      <i class="bi bi-floppy-fill me-1"></i><span data-i18n="config.save_btn">Sauvegarder tout</span>
+    </button>
+  </div>
 </div>
 
 <div class="accordion" id="acc">
@@ -26,6 +32,21 @@
             <div class="input-group">
               <span class="input-group-text"><i class="bi bi-folder"></i></span>
               <input type="text" class="form-control font-mono" id="src-source_folder" placeholder="/mnt/Serie">
+              <button class="btn btn-outline-secondary" type="button" onclick="_settingsAddBookmark()"
+                      title="Ajouter aux favoris">
+                <i class="bi bi-bookmark-plus"></i>
+              </button>
+            </div>
+          </div>
+
+          <!-- ── Dossiers favoris ────────────────────────────────────────── -->
+          <div class="col-12">
+            <label class="form-label fw-semibold">
+              <i class="bi bi-bookmark-star me-1 text-warning"></i>
+              <span data-i18n="config.scan.bookmarks_label">Dossiers favoris</span>
+            </label>
+            <div id="settings-bookmarks-list" class="d-flex flex-wrap gap-2 min-h-30px">
+              <span class="text-muted small fst-italic" data-i18n="config.scan.bookmarks_empty">Aucun favori — cliquez sur <i class="bi bi-bookmark-plus"></i> pour en ajouter.</span>
             </div>
           </div>
           <div class="col-md-6">
@@ -58,6 +79,39 @@
               </div>
             </div>
           </div>
+          <div class="col-12">
+            <div class="card bg-body-secondary">
+              <div class="card-header small fw-bold text-warning">COLLECTION</div>
+              <div class="card-body d-flex flex-column gap-2">
+                <p class="text-muted small mb-1" data-i18n="config.scan.collection.hint">
+                  Un dossier contenant plusieurs fichiers vidéo est classifié "collection" (upload individuel de chaque film).
+                  Configurez ici les tags qui autorisent cette classification.
+                </p>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-collection-enabled">
+                  <label class="form-check-label" for="rule-collection-enabled" data-i18n="common.enabled">Activée</label>
+                </div>
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="rule-collection-require-tag">
+                  <label class="form-check-label" for="rule-collection-require-tag" data-i18n="config.scan.collection.require_tag">
+                    Exiger un tag valide (parmi les Tags filtre) pour classifier comme collection
+                  </label>
+                </div>
+                <div>
+                  <label class="form-label small mb-1" for="rule-collection-tags" data-i18n="config.scan.collection.tags_label">
+                    Tags identifiant une collection
+                  </label>
+                  <input type="text" class="form-control form-control-sm font-mono"
+                         id="rule-collection-tags"
+                         placeholder="Collection, Pack, Saga, Trilogy">
+                  <div class="form-text text-muted" data-i18n="config.scan.collection.tags_hint">
+                    Laisser vide = tout dossier multi-vidéos. Si renseigné, seuls les dossiers
+                    dont le tag correspond à l'un de ces mots seront classifiés collection.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
           <div class="col-md-6">
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="src-confirm_mode">
@@ -68,6 +122,23 @@
             <div class="form-check form-switch">
               <input class="form-check-input" type="checkbox" id="src-dry_run">
               <label class="form-check-label" for="src-dry_run" data-i18n="config.scan.dry_run">Dry-run (simulation uniquement)</label>
+            </div>
+          </div>
+          <div class="col-12">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="src-recursive_scan">
+              <label class="form-check-label" for="src-recursive_scan" data-i18n="config.scan.recursive">Scan récursif du dossier source</label>
+            </div>
+            <div class="form-text" data-i18n="config.scan.recursive_hint">
+              Si le dossier source contient des sous-dossiers catégories (ex&nbsp;: <code>Films/</code>, <code>Séries/</code>), les analyser aussi un niveau plus bas.
+            </div>
+          </div>
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" data-i18n="config.scan.max_concurrent_label">Jobs simultanés</label>
+            <input type="number" class="form-control" id="src-max_concurrent_jobs"
+                   min="1" max="10" step="1" value="1">
+            <div class="form-text" data-i18n="config.scan.max_concurrent_hint">
+              Nombre de jobs pouvant tourner en parallèle. <strong>1</strong> = séquentiel (recommandé).
             </div>
           </div>
           <div class="col-md-6">
@@ -89,6 +160,87 @@
               Durée de conservation des vérifications (fichier <code>duplicate_check_cache.json</code>).
               <strong>0</strong> = rescan systématique sur le tracker, sans cache.
             </div>
+          </div>
+
+          <!-- ── Auto-retry (#8) ─────────────────────────────────────────── -->
+          <div class="col-md-6">
+            <div class="form-check form-switch mb-2">
+              <input class="form-check-input" type="checkbox" id="src-auto_retry_on_error">
+              <label class="form-check-label fw-semibold" for="src-auto_retry_on_error"
+                     data-i18n="config.scan.auto_retry_label">Retry automatique en cas d'erreur</label>
+            </div>
+            <label class="form-label small" data-i18n="config.scan.auto_retry_max_label">Nombre maximum de retries</label>
+            <input type="number" class="form-control form-control-sm" id="src-auto_retry_max"
+                   min="1" max="5" step="1" value="1">
+          </div>
+
+          <!-- ── Job timeout (#9) ────────────────────────────────────────── -->
+          <div class="col-md-6">
+            <label class="form-label fw-semibold" data-i18n="config.scan.job_timeout_label">Timeout job (minutes)</label>
+            <input type="number" class="form-control" id="src-job_timeout_minutes"
+                   min="0" step="1" value="0" placeholder="0">
+            <div class="form-text" data-i18n="config.scan.job_timeout_hint">
+              <strong>0</strong> = désactivé. Annule automatiquement un job bloqué après X minutes.
+            </div>
+          </div>
+
+          <!-- ── Log retention (Feature 9) ─────────────────────────────── -->
+          <div class="col-md-4">
+            <label class="form-label" for="src-log_retention_days" data-i18n="config.scan.log_retention_label">Rétention logs (jours)</label>
+            <input type="number" class="form-control form-control-sm" id="src-log_retention_days"
+                   min="0" max="365" step="1" placeholder="30">
+            <div class="form-text" data-i18n="config.scan.log_retention_hint">0 = désactivé. Purge les logs upload plus anciens que N jours.</div>
+          </div>
+
+          <!-- ── Inventaire Gemini ──────────────────────────────────────── -->
+          <div class="col-12">
+            <div class="card border-secondary">
+              <div class="card-header small fw-bold text-info d-flex align-items-center gap-2">
+                <i class="bi bi-archive"></i>
+                <span data-i18n="config.inventory.title">Inventaire Gemini</span>
+                <span id="inventory-running-badge" class="badge bg-warning text-dark d-none ms-auto">
+                  <span class="spinner-border spinner-border-sm me-1" style="width:.7rem;height:.7rem"></span>
+                  <span data-i18n="config.inventory.status_running">En cours…</span>
+                </span>
+              </div>
+              <div class="card-body">
+                <p class="text-muted small mb-3" data-i18n="config.inventory.hint">
+                  Synchronise la liste de vos uploads Gemini en arrière-plan avant l'analyse.
+                  Un check rapide (1 requête) vérifie si le total a changé avant de re-télécharger tout l'inventaire.
+                </p>
+                <div class="row g-3 align-items-end">
+                  <div class="col-md-4">
+                    <label class="form-label small" for="src-inventory_cache_ttl_hours"
+                           data-i18n="config.inventory.ttl_label">Durée du cache (heures)</label>
+                    <input type="number" class="form-control form-control-sm" id="src-inventory_cache_ttl_hours"
+                           min="0" max="168" step="1" placeholder="24">
+                    <div class="form-text" data-i18n="config.inventory.ttl_hint">
+                      0 = check du count à chaque connexion. Recommandé : 24.
+                    </div>
+                  </div>
+                  <div class="col-md-8 d-flex gap-2 flex-wrap">
+                    <button class="btn btn-sm btn-outline-info" onclick="syncInventory(false)">
+                      <i class="bi bi-arrow-repeat me-1"></i>
+                      <span data-i18n="config.inventory.btn_sync">Synchroniser maintenant</span>
+                    </button>
+                    <button class="btn btn-sm btn-outline-warning" onclick="syncInventory(true)">
+                      <i class="bi bi-arrow-clockwise me-1"></i>
+                      <span data-i18n="config.inventory.btn_force">Forcer la re-synchronisation</span>
+                    </button>
+                  </div>
+                </div>
+                <div id="inventory-status-text" class="mt-2 small text-muted"></div>
+              </div>
+            </div>
+          </div>
+
+          <!-- ── Webhook format (Feature 6) ────────────────────────────── -->
+          <div class="col-md-4">
+            <label class="form-label" data-i18n="config.webhook.format_label">Format webhook</label>
+            <select class="form-select form-select-sm" id="src-webhook_format">
+              <option value="raw" data-i18n="config.webhook.format_raw">JSON brut</option>
+              <option value="discord" data-i18n="config.webhook.format_discord">Discord embed</option>
+            </select>
           </div>
         </div>
       </div>
@@ -140,13 +292,25 @@
             <input type="text" class="form-control font-mono" data-path="TRACKER_CONFIG.MULTI_TRACKER_STR" placeholder="gemini">
             <div class="form-text" data-i18n="config.tracker.multi_hint">Séparés par virgule</div>
           </div>
+          <div class="col-md-6">
+            <label class="form-label">
+              <span data-i18n="config.tracker.gemini_username">Nom d'utilisateur Gemini</span>
+              <span class="text-danger ms-1" title="Obligatoire">*</span>
+            </label>
+            <input type="text" class="form-control font-mono" data-path="TRACKER_CONFIG.Gemini_USERNAME" placeholder="votre_pseudo" autocomplete="off">
+            <div class="form-text" data-i18n="config.tracker.gemini_username_hint">
+              Visible dans l'URL : <code>URL/users/<strong>username</strong>/uploads</code>
+            </div>
+            <div class="invalid-feedback" data-i18n="settings.validation.missing">Champ obligatoire</div>
+          </div>
           {% for (lbl, i18n_key, field, required) in [
-            ("API Key (Gemini)",   "config.tracker.gemini_key",   "Gemini_APIKEY",   True),
-            ("PID / Passkey",      "config.tracker.gemini_pid",   "Gemini_PID",      True),
-            ("TMDB API Key",       "config.tracker.tmdb_key",     "TMDB_APIKEY",     True),
-            ("YouTube API Key",    "config.tracker.youtube_key",  "YOUTUBE_KEY",     False),
-            ("IGDB Client ID",     "config.tracker.igdb_id",      "IGDB_CLIENT_ID",  False),
-            ("IGDB Client Secret", "config.tracker.igdb_secret",  "IGDB_ID_SECRET",  False),
+            ("API Key (Gemini)",          "config.tracker.gemini_key",          "Gemini_APIKEY",      True),
+            ("PID / Passkey",             "config.tracker.gemini_pid",          "Gemini_PID",         True),
+            ("TMDB API Key (v3 legacy)",  "config.tracker.tmdb_key",            "TMDB_APIKEY",        True),
+            ("TMDB Access Token (Bearer)","config.tracker.tmdb_access_token",   "TMDB_ACCESS_TOKEN",  False),
+            ("YouTube API Key",           "config.tracker.youtube_key",         "YOUTUBE_KEY",        False),
+            ("IGDB Client ID",            "config.tracker.igdb_id",             "IGDB_CLIENT_ID",     False),
+            ("IGDB Client Secret",        "config.tracker.igdb_secret",         "IGDB_ID_SECRET",     False),
           ] %}
           <div class="col-md-6">
             <label class="form-label">
@@ -633,6 +797,33 @@
             </div>
           </div>
         </div>
+        <!-- Night mode -->
+        <div class="card bg-body-secondary mb-3">
+          <div class="card-header small fw-bold text-secondary">
+            <i class="bi bi-moon-stars me-1"></i><span data-i18n="config.am.night_mode.title">Mode nuit</span>
+          </div>
+          <div class="card-body">
+            <div class="row g-3 align-items-center">
+              <div class="col-auto">
+                <div class="form-check form-switch">
+                  <input class="form-check-input" type="checkbox" id="am-night-enabled">
+                  <label class="form-check-label" for="am-night-enabled" data-i18n="config.am.night_mode.enabled">Activer</label>
+                </div>
+              </div>
+              <div class="col-auto">
+                <label class="form-label form-label-sm mb-0" data-i18n="config.am.night_mode.start">Début (h)</label>
+                <input type="number" class="form-control form-control-sm" id="am-night-start" min="0" max="23" style="width:70px" value="0">
+              </div>
+              <div class="col-auto">
+                <label class="form-label form-label-sm mb-0" data-i18n="config.am.night_mode.end">Fin (h)</label>
+                <input type="number" class="form-control form-control-sm" id="am-night-end" min="0" max="23" style="width:70px" value="7">
+              </div>
+              <div class="col">
+                <small class="text-muted" data-i18n="config.am.night_mode.hint">Pendant cette plage, la pause automatique est désactivée. Le reseed reste actif.</small>
+              </div>
+            </div>
+          </div>
+        </div>
         <div class="d-flex justify-content-between align-items-center mb-1">
           <span class="small fw-semibold text-muted">
             <i class="bi bi-journal-text me-1"></i><span data-i18n="config.am.log.title">Journal AutoManager</span>
@@ -646,10 +837,165 @@
     </div>
   </div>
 
+  <!-- ── Auto-scan planifié ──────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#s-autoscan">
+        <i class="bi bi-clock-history me-2 text-success"></i><span data-i18n="config.section.autoscan">Auto-scan planifié</span>
+      </button>
+    </h2>
+    <div id="s-autoscan" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div class="row g-3 align-items-center">
+          <div class="col-auto">
+            <div class="form-check form-switch">
+              <input class="form-check-input" type="checkbox" id="as-enabled">
+              <label class="form-check-label" for="as-enabled" data-i18n="config.autoscan.enabled">Activer le scan automatique</label>
+            </div>
+          </div>
+          <div class="col-auto">
+            <label class="form-label form-label-sm mb-0" data-i18n="config.autoscan.interval">Intervalle (min)</label>
+            <input type="number" class="form-control form-control-sm" id="as-interval"
+                   min="5" max="1440" step="5" value="60" style="width:90px">
+          </div>
+          <div class="col-12">
+            <small class="text-muted" data-i18n="config.autoscan.hint">
+              Scan automatique du dossier source en arrière-plan. Ne crée pas de jobs — met à jour la liste en temps réel.
+            </small>
+          </div>
+          <div class="col-12 d-flex align-items-center gap-2">
+            <span class="small text-muted" data-i18n="config.autoscan.last_run">Dernier scan :</span>
+            <span class="small font-mono" id="as-last-run">—</span>
+            <span class="badge bg-success d-none" id="as-last-count"></span>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Sécurité ────────────────────────────────────────────────────────── -->
+  <div class="accordion-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#acc-security">
+        <i class="bi bi-shield-lock-fill me-2 text-warning"></i>
+        <span data-i18n="config.security.title">Sécurité</span>
+      </button>
+    </h2>
+    <div id="acc-security" class="accordion-collapse collapse">
+      <div class="accordion-body">
+        <div id="security-status" class="alert alert-secondary py-2 mb-3 small"></div>
+
+        <!-- Inactivity timeout -->
+        <div class="mb-3">
+          <label class="form-label small fw-semibold" data-i18n="config.security.timeout_label">Déconnexion automatique (minutes)</label>
+          <input type="number" id="sec-session-timeout" class="form-control form-control-sm"
+                 min="0" step="5" value="0">
+          <div class="form-text" data-i18n="config.security.timeout_hint">0 = désactivé. Se déconnecte automatiquement après X minutes d'inactivité.</div>
+        </div>
+
+        <hr class="my-3">
+
+        <div class="mb-3">
+          <label class="form-label small fw-semibold" data-i18n="config.security.new_password">Nouveau mot de passe</label>
+          <input type="password" id="sec-new-pwd" class="form-control form-control-sm"
+                 autocomplete="new-password" placeholder="≥ 6 caractères">
+        </div>
+        <div class="mb-3">
+          <label class="form-label small fw-semibold" data-i18n="config.security.confirm_password">Confirmer</label>
+          <input type="password" id="sec-confirm-pwd" class="form-control form-control-sm"
+                 autocomplete="new-password">
+        </div>
+        <div id="sec-current-wrap" class="mb-3 d-none">
+          <label class="form-label small fw-semibold" data-i18n="config.security.current_password">Mot de passe actuel</label>
+          <input type="password" id="sec-current-pwd" class="form-control form-control-sm"
+                 autocomplete="current-password">
+        </div>
+        <div class="d-flex gap-2 flex-wrap">
+          <button class="btn btn-sm btn-warning" onclick="savePassword()">
+            <i class="bi bi-shield-check me-1"></i>
+            <span data-i18n="config.security.save_btn">Activer / Changer</span>
+          </button>
+          <button class="btn btn-sm btn-outline-danger" id="btn-disable-auth" onclick="disableAuth()" style="display:none">
+            <i class="bi bi-shield-x me-1"></i>
+            <span data-i18n="config.security.disable_btn">Désactiver l'authentification</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Catégories RSS ──────────────────────────────────────────────────── -->
+  <div class="accordion-item" id="acc-rss-categories-item">
+    <h2 class="accordion-header">
+      <button class="accordion-button collapsed" type="button"
+              data-bs-toggle="collapse" data-bs-target="#acc-rss-categories">
+        <i class="bi bi-tags-fill me-2 text-success"></i>
+        <span data-i18n="config.section.rss_categories">Catégories RSS</span>
+        <span class="badge bg-warning text-dark ms-2 small" id="rss-cat-qbit-only-badge"
+              data-i18n="config.rss_categories.qbit_only_badge">qBittorrent uniquement</span>
+      </button>
+    </h2>
+    <div id="acc-rss-categories" class="accordion-collapse collapse">
+      <div class="accordion-body">
+
+        <!-- Master toggle -->
+        <div class="d-flex align-items-center gap-3 mb-3">
+          <div class="form-check form-switch mb-0">
+            <input class="form-check-input" type="checkbox" id="rss-cat-enabled">
+            <label class="form-check-label fw-semibold" for="rss-cat-enabled"
+                   data-i18n="config.rss_categories.enabled">Activer les catégories RSS</label>
+          </div>
+          <span class="text-muted small" data-i18n="config.rss_categories.enabled_hint">
+            Classe automatiquement les téléchargements RSS selon le type et les genres TMDB.
+          </span>
+        </div>
+
+        <hr class="my-3">
+
+        <!-- RSS section -->
+        <div class="mb-3 d-flex align-items-center gap-2">
+          <i class="bi bi-rss-fill text-warning"></i>
+          <span class="fw-semibold" data-i18n="config.rss_categories.rss_section">RSS</span>
+          <button class="btn btn-sm btn-outline-secondary ms-auto" id="rss-cat-check-btn"
+                  onclick="rssCatCheck()">
+            <i class="bi bi-patch-check me-1"></i>
+            <span data-i18n="config.rss_categories.check_btn">Vérifier dans qBittorrent</span>
+          </button>
+        </div>
+
+        <div class="row g-2" id="rss-cat-rows">
+          <!-- filled by settings.js -->
+        </div>
+
+        <div class="form-text mt-2" data-i18n="config.rss_categories.name_hint">
+          Saisissez le nom exact de la catégorie tel qu'il est défini dans qBittorrent.
+        </div>
+
+        <hr class="my-3">
+
+        <!-- Watcher section — greyed out / En travaux -->
+        <div class="d-flex align-items-center gap-2 mb-2 opacity-50">
+          <i class="bi bi-eye-fill text-info"></i>
+          <span class="fw-semibold" data-i18n="config.section.watcher">Watcher &amp; Chemins</span>
+          <span class="badge bg-secondary ms-1" data-i18n="config.rss_categories.wip_badge">En travaux !</span>
+        </div>
+        <div class="card bg-body-secondary opacity-50">
+          <div class="card-body py-2 text-muted small text-center"
+               data-i18n="config.rss_categories.wip_hint">
+            La gestion des catégories pour le Watcher sera disponible dans une prochaine version.
+          </div>
+        </div>
+
+      </div>
+    </div>
+  </div>
+
 </div><!-- /accordion -->
 {% endblock %}
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/socket.io@4.7.5/client-dist/socket.io.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/sortablejs@1.15.2/Sortable.min.js"></script>
 <script src="/static/js/settings.js"></script>
 {% endblock %}

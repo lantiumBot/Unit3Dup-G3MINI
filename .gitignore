@@ -29,8 +29,9 @@ docker-compose.override.yml
 # Config personnelle (ne jamais committer)
 *.json
 !pyproject.toml
+# Locales i18n : ces JSON font partie du code source
+!web/static/locales/*.json
 .env
-.env.*
 *.secret
 *.secrets
 *.key
@@ -49,11 +50,16 @@ docker-compose.override.yml
 
 # WEB
 web/*.json
+web/*secret*
 
 # Config
 Unit3Dbot.json
+web/web_config.json
 
-# Tests
+# Tests — ignore generic tests/ but track the web dashboard test suite
 tests/
+!web/tests/
 .claude/
 api.txt
+*.bak
+*.corrupt*

@@ -1,11 +1,35 @@
 .git
 .gitignore
 .venv
-__pycache__
+**/__pycache__
 *.pyc
 *.pyo
 *.pyd
+*.egg-info
 .pytest_cache
 tests
+**/tests
 Docker
 docker-data
+
+# Runtime data — ne jamais inclure dans l'image
+web/web_config.json
+web/web_config.json.bak.*
+web/history.db
+web/.secret_key
+web/logs/
+web/.ssl/
+web/.version
+web/rss_feeds.json
+web/rss_items.json
+
+# Divers inutiles dans le conteneur
+.env
+uv.lock
+*.md
+!README.md
+auto_scan.sh
+upload.sh
+unit3dup-wrapper.sh
+valid_tags.json
+api.txt

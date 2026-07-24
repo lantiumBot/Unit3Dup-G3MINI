@@ -36,13 +36,29 @@
 .terminal::-webkit-scrollbar-track { background: transparent; }
 .terminal::-webkit-scrollbar-thumb { background: #30363d; border-radius: 3px; }
 
-/* ── Console active (fixée en haut de la liste jobs) ─────────────────────── */
+/* ── xterm.js dock container ─────────────────────────────────────────────── */
+.xterm-dock-wrap {
+  height: 320px;
+  background: #0d1117;
+  overflow: hidden;
+}
+.xterm-dock-wrap .xterm {
+  height: 100% !important;
+  padding: .35rem .5rem;
+}
+.xterm-dock-wrap .xterm-viewport { background: transparent !important; }
+
+/* ── Consoles actives (fixées en haut de la liste jobs) ──────────────────── */
 #active-console-dock {
   position: sticky;
   top: 0.35rem;
   z-index: 1020;
+  display: flex;
+  gap: 0.5rem;
 }
-.active-console-card {
+.active-console-panel {
+  flex: 1 1 400px;
+  min-width: 0;
   border-width: 2px !important;
 }
 

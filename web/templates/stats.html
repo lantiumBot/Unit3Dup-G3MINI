@@ -61,6 +61,22 @@
   </div>
 </div>
 
+<!-- ── Upload history chart (Feature 7) ──────────────────────────────────── -->
+<div class="card mb-4">
+  <div class="card-header d-flex align-items-center gap-2">
+    <i class="bi bi-graph-up-arrow text-success me-1"></i>
+    <span data-i18n="stats.chart.title">Uploads / jour</span>
+    <div class="ms-auto d-flex gap-1">
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadChart(7)" data-i18n="stats.chart.7d">7j</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadChart(30)" data-i18n="stats.chart.30d">30j</button>
+      <button class="btn btn-sm btn-outline-secondary" onclick="loadChart(90)" data-i18n="stats.chart.90d">90j</button>
+    </div>
+  </div>
+  <div class="card-body p-2">
+    <canvas id="upload-chart" height="120"></canvas>
+  </div>
+</div>
+
 <!-- ── qBit error banner ──────────────────────────────────────────────────── -->
 <div id="qbit-error" class="alert alert-warning d-none" role="alert">
   <i class="bi bi-exclamation-triangle-fill me-2"></i>
@@ -89,18 +105,30 @@
   <div class="card-header fw-semibold">
     <i class="bi bi-hdd-network me-2"></i><span data-i18n="stats.torrent.title">Torrents actifs (qBittorrent)</span>
   </div>
+  <!-- Torrent filter -->
+  <div class="d-flex align-items-center gap-2 p-2 border-bottom" id="torrent-filter-bar">
+    <select class="form-select form-select-sm" id="torrent-state-filter" style="max-width:180px"
+            onchange="applyTorrentFilter()">
+      <option value="">Tous états</option>
+      <option value="seeding">Seeding</option>
+      <option value="downloading">Downloading</option>
+      <option value="stalledUP">Stalled</option>
+      <option value="pausedUP">Paused</option>
+    </select>
+    <span class="text-muted small" id="torrent-count"></span>
+  </div>
   <div class="table-responsive">
     <table class="table table-sm table-hover align-middle mb-0">
-      <thead class="table-dark">
+      <thead class="table-dark" id="torrent-thead">
         <tr>
-          <th data-i18n="stats.torrent.col.name">Nom</th>
-          <th data-i18n="stats.torrent.col.state">État</th>
-          <th data-i18n="stats.torrent.col.size">Taille</th>
-          <th data-i18n="stats.torrent.col.uploaded">Uploadé</th>
-          <th data-i18n="stats.torrent.col.ratio">Ratio</th>
-          <th class="text-nowrap" data-i18n="stats.torrent.col.up_speed">↑ Vitesse</th>
-          <th class="text-nowrap" data-i18n="stats.torrent.col.dl_speed">↓ Vitesse</th>
-          <th data-i18n="stats.torrent.col.progress">Progression</th>
+          <th data-col="name"          style="cursor:pointer" onclick="sortTorrents('name')"          data-i18n="stats.torrent.col.name">Nom <span id="sort-name"></span></th>
+          <th data-col="state"         style="cursor:pointer" onclick="sortTorrents('state')"         data-i18n="stats.torrent.col.state">État <span id="sort-state"></span></th>
+          <th data-col="size"          style="cursor:pointer" onclick="sortTorrents('size')"          data-i18n="stats.torrent.col.size">Taille <span id="sort-size"></span></th>
+          <th data-col="uploaded"      style="cursor:pointer" onclick="sortTorrents('uploaded')"      data-i18n="stats.torrent.col.uploaded">Uploadé <span id="sort-uploaded"></span></th>
+          <th data-col="ratio"         style="cursor:pointer" onclick="sortTorrents('ratio')"         data-i18n="stats.torrent.col.ratio">Ratio <span id="sort-ratio"></span></th>
+          <th class="text-nowrap" data-col="upload_speed"  style="cursor:pointer" onclick="sortTorrents('upload_speed')"  data-i18n="stats.torrent.col.up_speed">↑ Vitesse <span id="sort-upload_speed"></span></th>
+          <th class="text-nowrap" data-col="download_speed" style="cursor:pointer" onclick="sortTorrents('download_speed')" data-i18n="stats.torrent.col.dl_speed">↓ Vitesse <span id="sort-download_speed"></span></th>
+          <th data-col="progress"      data-i18n="stats.torrent.col.progress">Progression</th>
         </tr>
       </thead>
       <tbody id="torrent-body">
@@ -113,5 +141,6 @@
 
 {% block scripts %}
 <script src="https://cdn.jsdelivr.net/npm/echarts@5.5.1/dist/echarts.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
 <script src="/static/js/stats.js"></script>
 {% endblock %}

@@ -1,0 +1,332 @@
+{% extends "base.html" %}
+{% block title %}Inventaire{% endblock %}
+
+{% block content %}
+<div class="d-flex flex-wrap align-items-center gap-2 mb-3">
+  <h5 class="mb-0">
+    <i class="bi bi-collection-fill me-2"></i>
+    <span data-i18n="inventory.title">Inventaire Gemini</span>
+  </h5>
+  <span class="badge bg-secondary ms-1" id="inv-total-badge"></span>
+  <div class="ms-auto d-flex flex-wrap gap-2">
+    <button class="btn btn-sm btn-outline-secondary" onclick="invLoad(1)">
+      <i class="bi bi-arrow-clockwise me-1"></i><span data-i18n="common.refresh">Actualiser</span>
+    </button>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="d-flex flex-wrap gap-2 mb-3 align-items-center">
+  <!-- Search -->
+  <div class="input-group input-group-sm" style="max-width:300px">
+    <span class="input-group-text"><i class="bi bi-search"></i></span>
+    <input type="search" class="form-control" id="inv-search"
+           placeholder="Rechercher…"
+           oninput="_invSearchDebounce()">
+  </div>
+
+  <!-- Sort -->
+  <select class="form-select form-select-sm" id="inv-sort" style="max-width:160px"
+          onchange="_invControlChange()">
+    <option value="date_desc">Date ↓ (récent)</option>
+    <option value="date_asc">Date ↑ (ancien)</option>
+    <option value="name_asc">Nom A→Z</option>
+    <option value="name_desc">Nom Z→A</option>
+  </select>
+
+  <!-- Seeding filter -->
+  <select class="form-select form-select-sm" id="inv-seed-filter" style="max-width:150px"
+          onchange="_invSeedFilterChange()">
+    <option value="">Tous</option>
+    <option value="seeding">En seed</option>
+    <option value="not_seeding">Pas en seed</option>
+  </select>
+
+  <!-- Per page -->
+  <select class="form-select form-select-sm" id="inv-limit" style="max-width:110px"
+          onchange="_invControlChange()">
+    <option value="50">50 / page</option>
+    <option value="100" selected>100 / page</option>
+    <option value="200">200 / page</option>
+  </select>
+
+  <span class="text-muted small" id="inv-page-label"></span>
+</div>
+
+<!-- Table -->
+<div class="table-responsive">
+  <table class="table table-sm table-hover align-middle" id="inv-table">
+    <thead class="table-dark">
+      <tr>
+        <th class="user-select-none" style="cursor:pointer" onclick="_invSortCol('name')" id="th-name">
+          Nom <span id="th-name-icon"></span>
+        </th>
+        <th class="user-select-none text-nowrap" style="cursor:pointer" onclick="_invSortCol('date')" id="th-date">
+          Date d'upload <span id="th-date-icon">▼</span>
+        </th>
+        <th>Lien Gemini</th>
+        <th id="th-client">
+          Client
+          <span class="badge bg-secondary ms-1 small" id="inv-qbit-badge" title="Chargement qBit…">…</span>
+        </th>
+        <th>Télécharger</th>
+      </tr>
+    </thead>
+    <tbody id="inv-body">
+      <tr><td colspan="5" class="text-center text-muted py-4">
+        <i class="bi bi-hourglass-split me-2"></i>Chargement…
+      </td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div id="inv-pagination" class="mt-3 d-flex justify-content-center"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ── State ──────────────────────────────────────────────────────────── */
+  let _page       = 1;
+  let _limit      = 100;
+  let _search     = "";
+  let _sortKey    = "date";   // "name" | "date"
+  let _sortDir    = "desc";   // "asc"  | "desc"
+  let _seedFilter = "";       // "" | "seeding" | "not_seeding"
+  let _pages      = 1;
+  let _debTimer   = null;
+
+  // Set of Gemini tracker_ids (strings) currently seeding in qBit
+  let _seedingIds = new Set();
+  let _qbitLoaded = false;
+
+  /* ── qBit seeding via tracker_id (comment field) ────────────────────── */
+  function _loadQbit() {
+    return fetch("/api/inventory/seeding")
+      .then(r => r.ok ? r.json() : {})
+      .then(data => {
+        _seedingIds = new Set((data.ids || []).map(String));
+        _qbitLoaded = true;
+        const badge = document.getElementById("inv-qbit-badge");
+        if (!badge) return;
+        if (data.error) {
+          badge.textContent = "N/A";
+          badge.className   = "badge bg-secondary ms-1 small";
+          badge.title       = data.error;
+        } else {
+          badge.textContent = `${_seedingIds.size} en seed`;
+          badge.className   = "badge bg-success ms-1 small";
+          badge.title       = "Détection via commentaire torrent (ID exact)";
+        }
+      })
+      .catch(() => {
+        _qbitLoaded = true;
+        const badge = document.getElementById("inv-qbit-badge");
+        if (badge) { badge.textContent = "Erreur"; badge.className = "badge bg-danger ms-1 small"; }
+      });
+  }
+
+  /* ── Main load ──────────────────────────────────────────────────────── */
+  function invLoad(page) {
+    if (page !== undefined) _page = page;
+
+    // Read controls
+    const sortEl = document.getElementById("inv-sort");
+    if (sortEl) {
+      const v = sortEl.value;          // e.g. "date_desc"
+      _sortKey = v.split("_")[0];
+      _sortDir = v.split("_")[1];
+    }
+    const limitEl = document.getElementById("inv-limit");
+    if (limitEl) _limit = parseInt(limitEl.value) || 100;
+
+    const params = new URLSearchParams({
+      page:  _page,
+      limit: _limit,
+      search: _search,
+      sort:   _sortKey,
+      order:  _sortDir,
+    });
+
+    const tbody = document.getElementById("inv-body");
+    tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">
+      <i class="bi bi-hourglass-split me-2"></i>Chargement…</td></tr>`;
+
+    fetch(`/api/inventory/items?${params}`)
+      .then(r => r.ok ? r.json() : Promise.reject(r.status))
+      .then(data => {
+        _pages = data.pages || 1;
+        const rows = data.rows || [];
+
+        // Apply client-side seeding filter
+        const filtered = _applyQbitFilter(rows);
+        _renderTable(filtered);
+        _renderPagination(data.page || 1, _pages);
+        _renderTotalBadge(data.total || 0, filtered.length, rows.length);
+        _renderPageLabel(data.page || 1, _pages);
+        _updateSortIcons();
+      })
+      .catch(err => {
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger py-4">Erreur ${err}</td></tr>`;
+      });
+  }
+  window.invLoad = invLoad;
+
+  /* ── qBit seeding filter (client-side on current page) ─────────────── */
+  function _applyQbitFilter(rows) {
+    if (!_seedFilter || !_qbitLoaded) return rows;
+    return rows.filter(r => {
+      const seeding = _seedingIds.has(String(r.tracker_id));
+      return _seedFilter === "seeding" ? seeding : !seeding;
+    });
+  }
+
+  function _invSeedFilterChange() {
+    _seedFilter = (document.getElementById("inv-seed-filter") || {}).value || "";
+    invLoad(1);
+  }
+  window._invSeedFilterChange = _invSeedFilterChange;
+
+  /* ── Sort by column header click ────────────────────────────────────── */
+  function _invSortCol(col) {
+    const sortEl = document.getElementById("inv-sort");
+    if (!sortEl) return;
+    // Toggle direction if same col, else default desc
+    if (_sortKey === col) {
+      _sortDir = _sortDir === "desc" ? "asc" : "desc";
+    } else {
+      _sortKey = col;
+      _sortDir = "desc";
+    }
+    sortEl.value = `${_sortKey}_${_sortDir}`;
+    invLoad(1);
+  }
+  window._invSortCol = _invSortCol;
+
+  function _updateSortIcons() {
+    ["name", "date"].forEach(col => {
+      const el = document.getElementById(`th-${col}-icon`);
+      if (!el) return;
+      el.textContent = _sortKey === col ? (_sortDir === "desc" ? "▼" : "▲") : "";
+    });
+  }
+
+  /* ── Controls change ────────────────────────────────────────────────── */
+  function _invControlChange() { invLoad(1); }
+  window._invControlChange = _invControlChange;
+
+  /* ── Table render ───────────────────────────────────────────────────── */
+  function _renderTable(rows) {
+    const tbody = document.getElementById("inv-body");
+    if (!rows.length) {
+      tbody.innerHTML = `<tr><td colspan="5" class="text-center text-muted py-4">Aucun résultat.</td></tr>`;
+      return;
+    }
+
+    let html = "";
+    for (const row of rows) {
+      const name = _esc(row.name || "");
+      const date = row.processed_at ? row.processed_at.slice(0, 16).replace("T", " ") : "—";
+
+      const linkCell = row.tracker_url
+        ? `<a href="${_esc(row.tracker_url)}" target="_blank" rel="noopener"
+              class="btn btn-xs btn-outline-info py-0 px-1">
+             <i class="bi bi-box-arrow-up-right me-1"></i>Ouvrir
+           </a>`
+        : `<span class="text-muted">—</span>`;
+
+      const isSeeding = _qbitLoaded && _seedingIds.has(String(row.tracker_id));
+      const seedCell  = !_qbitLoaded
+        ? `<span class="text-muted small">…</span>`
+        : isSeeding
+        ? `<span class="badge bg-success">En seed</span>`
+        : `<span class="text-muted">—</span>`;
+
+      const dlCell = row.download_url
+        ? `<a href="${_esc(row.download_url)}" target="_blank" rel="noopener"
+              class="btn btn-xs btn-outline-secondary py-0 px-1">
+             <i class="bi bi-download me-1"></i>Télécharger
+           </a>`
+        : `<span class="text-muted">—</span>`;
+
+      html += `<tr>
+        <td class="font-mono small" style="max-width:420px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap" title="${name}">${name}</td>
+        <td class="text-nowrap small text-muted">${date}</td>
+        <td>${linkCell}</td>
+        <td>${seedCell}</td>
+        <td>${dlCell}</td>
+      </tr>`;
+    }
+    tbody.innerHTML = html;
+  }
+
+  /* ── Pagination ─────────────────────────────────────────────────────── */
+  function _renderPagination(page, pages) {
+    const el = document.getElementById("inv-pagination");
+    if (pages <= 1) { el.innerHTML = ""; return; }
+
+    const first = Math.max(1, page - 3);
+    const last  = Math.min(pages, page + 3);
+    let btns = "";
+
+    if (first > 1) btns += `<li class="page-item"><a class="page-link" href="#" data-p="1">1</a></li>
+      <li class="page-item disabled"><span class="page-link">…</span></li>`;
+
+    for (let p = first; p <= last; p++) {
+      btns += `<li class="page-item ${p === page ? "active" : ""}">
+        <a class="page-link" href="#" data-p="${p}">${p}</a></li>`;
+    }
+    if (last < pages) btns += `<li class="page-item disabled"><span class="page-link">…</span></li>
+      <li class="page-item"><a class="page-link" href="#" data-p="${pages}">${pages}</a></li>`;
+
+    el.innerHTML = `<ul class="pagination pagination-sm mb-0">${btns}</ul>`;
+    el.querySelectorAll("[data-p]").forEach(a => {
+      a.addEventListener("click", e => {
+        e.preventDefault();
+        invLoad(parseInt(a.dataset.p));
+      });
+    });
+  }
+
+  function _renderTotalBadge(total, filtered, pageCount) {
+    const el = document.getElementById("inv-total-badge");
+    if (!el) return;
+    if (_seedFilter && filtered < pageCount)
+      el.textContent = `${filtered} / ${total} affichés`;
+    else
+      el.textContent = `${total} entrées`;
+  }
+
+  function _renderPageLabel(page, pages) {
+    const el = document.getElementById("inv-page-label");
+    if (el) el.textContent = pages > 1 ? `Page ${page} / ${pages}` : "";
+  }
+
+  /* ── Search debounce ────────────────────────────────────────────────── */
+  function _invSearchDebounce() {
+    clearTimeout(_debTimer);
+    _debTimer = setTimeout(() => {
+      const val = (document.getElementById("inv-search") || {}).value || "";
+      if (val !== _search) {
+        _search = val;
+        _page   = 1;
+        invLoad();
+      }
+    }, 300);
+  }
+  window._invSearchDebounce = _invSearchDebounce;
+
+  /* ── Escape helper ──────────────────────────────────────────────────── */
+  function _esc(s) {
+    return String(s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  /* ── Boot ───────────────────────────────────────────────────────────── */
+  document.addEventListener("DOMContentLoaded", () => {
+    _loadQbit().then(() => invLoad(1));
+  });
+})();
+</script>
+{% endblock %}

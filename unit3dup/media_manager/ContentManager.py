@@ -82,8 +82,17 @@ class ContentManager:
         # add category filter to the regex result caused by a possible substring (e.g., S06) in the whole path
         # and not part of the title
         if media.category=='tv':
-            # Search for the first result (Sx) in self.path
-            torrent_pack = bool(re.search(r"(S\d+(?!.*E\d+))|(S\d+E\d+-E?\d+)", self.path))
+            # Standard SxxExx-range or bare Sxx (no episode) — original pattern
+            # Extended: also match French "Saison.05", English "Season.2",
+            # and ordinal "Second Season" / "Third Season" etc.
+            torrent_pack = bool(re.search(
+                r"(S\d+(?!.*E\d+))"            # S05 without episode
+                r"|(S\d+E\d+-E?\d+)"           # S05E01-E05 range
+                r"|(?:S(?:ea|ai)son[.\s_\-]*\d+)"  # Season 2 / Saison 05
+                r"|(?:(?:Second|Third|Fourth|Fifth|Sixth|Seventh|Eighth|Ninth|Tenth)"
+                r"[.\s_\-]+Season)",            # Second Season / Third Season
+                self.path, re.IGNORECASE
+            ))
             if not torrent_pack and ManageTitles.is_tv_integrale(media.title_sanitized):
                 torrent_pack = True
         else:

@@ -1,4 +1,5 @@
-flask>=3.0
-flask-socketio>=5.3
-simple-websocket>=1.0
-eventlet>=0.35.0
+flask>=3.0,<4
+flask-socketio>=5.3,<6
+simple-websocket>=1.0,<2
+eventlet>=0.35.0,<1
+werkzeug>=3.0       # hash mot de passe (pbkdf2:sha256) — dep transitive de flask, pinned explicitement

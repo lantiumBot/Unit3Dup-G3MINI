@@ -1,10 +1,48 @@
 services:
-  unit3dup:
+
+  # ── Dashboard web ─────────────────────────────────────────────────────────
+  unit3dup-web:
     build:
       context: .
-    container_name: unit3dup
+    image: unit3dup:latest
+    container_name: unit3dup-web
     restart: unless-stopped
-    user: "${PUID:-1000}:${PGID:-1000}"
+    environment:
+      TZ: "${TZ:-Europe/Paris}"
+      UNIT3DUP_CONFIG_ROOT: /config
+      HOME: /tmp/unit3dup
+      U3D_WEB_HOST: "0.0.0.0"
+      U3D_WEB_PORT: "5000"
+      # Origines CORS autorisées pour Socket.IO (laisser vide = auto selon U3D_WEB_HOST)
+      # Utile derrière un reverse proxy : U3D_CORS_ORIGINS=https://mondomaine.com
+      # U3D_CORS_ORIGINS: "${U3D_CORS_ORIGINS:-}"
+    ports:
+      - "10.0.0.2:5000:5000"
+    volumes:
+      # Config tracker (Unit3Dbot.json)
+      - ./docker-data/config:/config
+      # Donnees persistantes du dashboard (web_config.json, history.db, logs, SSL)
+      - ./docker-data/web-data:/data
+      # Dossier source media — adapter au chemin reel de la mediatheque
+      - "/storage:/storage"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('https://localhost:5000/api/health')"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 15s
+    # Pour activer HTTPS (certificat auto-signe genere au premier demarrage) :
+    command: ["python", "start_web.py", "--tls"]
+
+  # ── Watcher CLI (optionnel) ───────────────────────────────────────────────
+  # Lance le mode --watcher de l'outil en ligne de commande.
+  # Activer avec : docker compose --profile watcher up -d
+  unit3dup-watcher:
+    build:
+      context: .
+    image: unit3dup:latest
+    container_name: unit3dup-watcher
+    restart: unless-stopped
     environment:
       TZ: "${TZ:-Europe/Paris}"
       UNIT3DUP_CONFIG_ROOT: /config
@@ -13,5 +51,8 @@ services:
       - ./docker-data/config:/config
       - ./docker-data/watch:/watch
       - ./docker-data/done:/done
-      - ./docker-data/media:/data
-    command: ["-watcher"]
+      # Dossier source media (même montage que le service web)
+      - "/storage:/storage"
+    command: ["unit3dup", "-watcher"]
+    profiles:
+      - watcher

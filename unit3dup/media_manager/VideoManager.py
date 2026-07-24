@@ -1,6 +1,7 @@
 # -*- coding: utf-8 -*-
 import argparse
 import os
+import re
 
 from common.external_services.theMovieDB.core.api import DbOnline
 from common.bittorrent import BittorrentData
@@ -13,6 +14,26 @@ from unit3dup.pvtVideo import Video
 from unit3dup.media import Media
 
 from view import custom_console
+
+_PARENT_YEAR_RE = re.compile(r'(?:^|[._\s])([12][0-9]{3})(?:[._\s]|$)')
+
+
+def _year_from_parents(file_path: str) -> int | None:
+    """Remonte les dossiers parents (jusqu'à 2 niveaux) pour trouver une année manquante."""
+    path = os.path.dirname(os.path.abspath(file_path)) if file_path else None
+    for _ in range(2):
+        if not path:
+            break
+        name = os.path.basename(path)
+        m = _PARENT_YEAR_RE.search(name)
+        if m:
+            return int(m.group(1))
+        parent = os.path.dirname(path)
+        if parent == path:
+            break
+        path = parent
+    return None
+
 
 class VideoManager:
 
@@ -67,8 +88,15 @@ class VideoManager:
                                                      cli=self.cli)):
                     continue
 
-                # Search for VIDEO ID
-                db_online = DbOnline(media=content,category=content.category, no_title=self.cli.notitle)
+                # Override TMDB ID from dashboard env var (set by web/core/job.py)
+                _env_tmdb = os.environ.get("U3D_TMDB_ID", "").strip()
+                if _env_tmdb.isdigit() and int(_env_tmdb) > 0:
+                    content.tmdb_id = int(_env_tmdb)
+
+                # Search for VIDEO ID — utilise l'année du nom de fichier ou des dossiers parents
+                year_hint = content.guess_filename.guessit_year or _year_from_parents(content.file_name)
+                db_online = DbOnline(media=content, category=content.category, no_title=self.cli.notitle,
+                                     year=year_hint)
                 db = db_online.media_result
 
                 # If it is 'None' we skipped the imdb search (-notitle)

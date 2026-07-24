@@ -149,24 +149,50 @@ source .venv/bin/activate && pip install -e .   # si requirements.txt a changé
 
 ---
 
+## Dashboard Web
+
+Interface web pour piloter les uploads, suivre les jobs en temps réel, consulter l'historique et configurer le bot sans toucher aux JSON.
+
+```bash
+./start_web.sh --setup   # assistant premier démarrage (mot de passe + TLS optionnel)
+./start_web.sh           # démarrage interactif (port 5000)
+./start_web.sh --daemon  # mode service arrière-plan
+```
+
+Pages disponibles : **Jobs** · **Historique** · **Stats** · **Status** · **RSS** · **Inventaire** · **Configuration**
+
+Voir **[README_WEB.md](README_WEB.md)** pour la documentation complète (configuration, API REST, Socket.IO, Docker, systemd).
+
+---
+
 ## Docker / NAS
 
-Stack à la racine : `Dockerfile`, `docker-compose.yml`. Config dans `/config` (`UNIT3DUP_CONFIG_ROOT`).
+Stack à la racine : `Dockerfile`, `docker-compose.yml`. Config dans `/config` (`UNIT3DUP_CONFIG_ROOT`). Données persistantes (config web, historique, logs) dans `docker-data/web-data/`.
 
 ```bash
 docker compose build
-docker compose run --rm unit3dup --help    # crée Unit3Dbot.json
-# éditer docker-data/config/Unit3Dbot.json (WATCHER_PATH=/watch, etc.)
-docker compose up -d                       # -watcher
+docker compose up -d          # démarre le dashboard web (port 5000) + watcher (profil watcher)
 ```
+
+Premier lancement : édite `docker-data/config/Unit3Dbot.json` (créé au démarrage) puis accède à `http://<ip>:5000` pour configurer via l’interface web.
+
+Variables d’environnement utiles dans `docker-compose.yml` (ou `.env`) :
+
+| Variable | Défaut | Rôle |
+|----------|--------|------|
+| `PUID` / `PGID` | `1000` | UID/GID du processus dans le conteneur |
+| `TZ` | `Europe/Paris` | Timezone |
+| `WEB_PORT` | `5000` | Port HTTP exposé |
+| `MEDIA_DIR` | `./docker-data/media` | Dossier source monté dans `/media` |
+| `U3D_CORS_ORIGINS` | _(auto)_ | Origines CORS autorisées (virgule-séparées) |
+
+Sur NAS, adapter les volumes (`/volume1/...`) et `PUID`/`PGID`. Si aucun client torrent n’est joignable, utiliser `-noseed` ou `-watcher -noseed` pour éviter les redémarrages en boucle.
 
 Upload manuel dans le conteneur :
 
 ```bash
-docker compose run --rm unit3dup -u /data/fichier.mkv
+docker compose run --rm unit3dup-web unit3dup -u /media/fichier.mkv
 ```
-
-Sur NAS, adapte les volumes (`/volume1/...`) et `PUID` / `PGID` dans le compose. Si aucun client torrent n’est joignable, utilise `-noseed` ou `-watcher -noseed` pour éviter les redémarrages en boucle.
 
 ---
 
