@@ -38,8 +38,12 @@ class UploadBot:
                 if release_name in name_map:
                     return name_map[release_name]
                 # Fallback: raw file stem (dashboard key) may differ from display_name
-                # (e.g. CLI strips "CUSTOM" from display_name → key mismatch)
-                if self.content.file_name:
+                # (e.g. CLI strips "CUSTOM" from display_name → key mismatch).
+                # Skip for torrent packs: content.file_name is only a sampled video
+                # (e.g. S01E01) used for MediaInfo, not the pack's own identity —
+                # matching on it would steal that episode's confirmed name (#bug
+                # duplicate "name" rejected by the tracker for integrale/season packs).
+                if self.content.file_name and not self.content.torrent_pack:
                     raw_stem = os.path.splitext(os.path.basename(self.content.file_name))[0].replace(" ", ".")
                     if raw_stem != release_name and raw_stem in name_map:
                         return name_map[raw_stem]
